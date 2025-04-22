@@ -1,0 +1,65 @@
+
+# sshproxy acgpic nettouch
+DefaultCommand: "sshproxy"
+
+AcgPic:
+  TargetImg: "/dev/shm/acg_image1.jpg"
+  SearchImgDir: "/dev/shm/temp"
+  Threshold: 20
+
+# 此节点配置用于代理内网访问, 类似于翻墙到内网, 可以不用在内网安装任何软件
+SockProxy:
+  ServerName: "paydayloan-proxy"
+  OpenStatus: true
+  ServerHost: "SERVER_IP:PORT"
+  ServerUser: "SSH_USERNAME"
+  ServerPassword: "SSH_PASSWORD"
+  ServerPriKey: ""
+  NeedJump: false
+  Local: "127.0.0.1:22122"
+  Proxy: "PROXY_IP:PORT"
+  # 目前只能使用命令, 同时需要配置ssh别名和公钥登陆
+  SSHCommand: "ssh -ND 22122 -J TypeMoon cloudServer"
+
+# sock5 转 http代理, 后续增加转https代理功能
+SockToHttp:
+  ServerName: socktohttp-all
+  OpenStatus: true
+  SockAddr: 127.0.0.1:22122
+  TOHttp: 127.0.0.1:7890
+
+ServerConf: 
+  # 跳板机 相当于ssh -J 选项
+  Jump: {
+    JumpHost: "JUMP_IP:PORT",
+    JumpUser: "JUMP_SSH_USERNAME",
+    JumpPassword: "JUMP_SSH_PASSWORD",
+    JumpPriKey: ""
+  }
+
+  SSHConf: [
+    {
+      # ServerName 不能重复
+      "ServerName": "lovelive-kotori",
+      "OpenStatus": true,
+      "ServerHost": "SERVER_IP:PORT",
+      "ServerUser": "SSH_USERNAME",
+      "ServerPassword": "SSH_PASSWORD",
+      "ServerPriKey":"",
+      "NeedJump": false,
+      "Local": "127.0.0.1:20022",
+      "Proxy": "PROXY_IP:PORT",
+    },
+    {
+      "ServerName": "lovelive-honoka",
+      # false 则不使用此配置
+      "OpenStatus": false,
+      "ServerHost": "SERVER_IP:PORT",
+      "ServerUser": "SSH_USERNAME",
+      "ServerPassword": "SSH_PASSWORD",
+      "ServerPriKey":"",
+      "NeedJump": false,
+      "Local": "127.0.0.1:28013",
+      "Proxy": "PROXY_IP:PORT",
+    }
+  ]

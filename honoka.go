@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"honoka/pkg/acgpic"
@@ -20,7 +19,7 @@ func main() {
 			confPath = os.Args[key+1]
 		}
 	}
-	if len(os.Args) < 2 {
+	if confPath == "" {
 		confPath = "./conf/conf.yaml"
 	}
 
@@ -30,7 +29,7 @@ func main() {
 	}
 
 	commandFlag := ""
-	if len(os.Args) < 2 {
+	if len(os.Args) <= 2 {
 		fmt.Println("len(os.Args) < 2 ", len(os.Args), os.Args)
 		commandFlag = conf.DefaultCommand
 	} else {
@@ -60,7 +59,7 @@ func RunSSHProxy() {
 	whatFlag := flag.Bool("what", false, "ssh proxy 'ssh -NL' command")
 	confFlag := flag.String("f", "./conf/conf.yaml", "RunSSHProxy: configure file, default file path ./conf/config.yaml")
 
-	if len(os.Args) >= 2 {
+	if len(os.Args) > 2 {
 		flag.CommandLine.Parse(os.Args[2:])
 	} else {
 		flag.CommandLine.Parse(os.Args[1:])
@@ -72,7 +71,7 @@ func RunSSHProxy() {
 		return
 	}
 	if *jsonFlag {
-		printJson(conf)
+		confopt.PrintConfJson(conf)
 		return
 	}
 
@@ -94,7 +93,7 @@ func RunNetTouch() {
 	// 解析命令行参数
 	flag.CommandLine.Parse(os.Args[2:])
 	if *jsonFlag {
-		printJson(conf)
+		confopt.PrintConfJson(conf)
 		return
 	}
 
@@ -120,7 +119,7 @@ func RunACGPic() {
 	// 解析命令行参数
 	flag.CommandLine.Parse(os.Args[2:])
 	if *jsonFlag {
-		printJson(conf)
+		confopt.PrintConfJson(conf)
 		return
 	}
 	targetImg := conf.AcgPic.TargetImg
@@ -140,11 +139,4 @@ func RunACGPic() {
 	fmt.Println("final parms: ", targetImg, searchImgDir, threshold)
 	fmt.Println("------")
 	acgpic.SearchPic(targetImg, searchImgDir, threshold)
-}
-
-func printJson(conf *confopt.Config) {
-	fmt.Println(`------ Print JSON Start ------ `)
-	jsonByte, _ := json.Marshal(conf)
-	fmt.Println(string(jsonByte))
-	fmt.Println(`------ Print JSON End ------ `)
 }

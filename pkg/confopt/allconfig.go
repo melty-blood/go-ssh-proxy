@@ -1,6 +1,7 @@
 package confopt
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/zeromicro/go-zero/core/conf"
@@ -22,4 +23,11 @@ func ConfKind(conf *Config) map[string]*SSHConfig {
 		confMap[val.ServerName] = val
 	}
 	return confMap
+}
+
+func PrintConfJson(conf *Config) {
+	fmt.Println(`------ Print JSON Start ------ `)
+	jsonByte, _ := json.Marshal(conf)
+	fmt.Println(string(jsonByte))
+	fmt.Println(`------ Print JSON End ------ `)
 }

@@ -10,7 +10,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -209,8 +208,6 @@ func findSimilarImages(targetPath, searchDir string, threshold int) ([]string, e
 }
 
 func SearchPic(targetImg, searchImgDir string, threshold int) {
-	runtime.GOMAXPROCS(60)
-
 	// opt := SearchPicOpt{IsNeedWritePic: false}
 	// result, _ := SearchPicCUDA(targetImg, searchImgDir, threshold, &opt)
 

@@ -1,5 +1,5 @@
 
-# sshproxy acgpic nettouch
+# 默认执行的命令, 可选: sshproxy acgpic nettouch
 DefaultCommand: "sshproxy"
 
 AcgPic:

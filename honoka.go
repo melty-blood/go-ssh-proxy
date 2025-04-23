@@ -9,9 +9,11 @@ import (
 	"honoka/pkg/network"
 	"honoka/pkg/proxysock"
 	"os"
+	"slices"
 )
 
 func main() {
+	var commandArr []string = []string{"sshproxy", "acgpic", "nettouch"}
 
 	confPath := ""
 	for key, val := range os.Args {
@@ -32,11 +34,11 @@ func main() {
 	if len(os.Args) <= 2 {
 		fmt.Println("len(os.Args) < 2 ", len(os.Args), os.Args)
 		commandFlag = conf.DefaultCommand
+		if commandIndex := slices.Index(commandArr, os.Args[1]); commandIndex >= 0 {
+			commandFlag = os.Args[1]
+		}
 	} else {
 		commandFlag = os.Args[1]
-		// if commandFlag == "-f" && len(os.Args) >= 4 {
-		// 	commandFlag = os.Args[3]
-		// }
 	}
 
 	switch commandFlag {

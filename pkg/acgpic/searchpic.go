@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 )
 
 // 灰度化并缩放图片
@@ -125,6 +124,8 @@ func findSimilarImages(targetPath, searchDir string, threshold int) ([]string, e
 
 	searchChan := make(chan string, 100)
 	var lockRW sync.RWMutex
+	var waitArr sync.WaitGroup
+
 	// 计算文件数量(不包括目录)
 	fileDirCount := 0
 	err = filepath.Walk(searchDir, func(path string, info os.FileInfo, err error) error {
@@ -179,6 +180,7 @@ func findSimilarImages(targetPath, searchDir string, threshold int) ([]string, e
 				if distance <= threshold {
 					fmt.Printf("找到相似图片: %s (汉明距离: %d)\n", path, distance)
 					searchChan <- path
+					waitArr.Add(1)
 					return
 				}
 			}()
@@ -190,21 +192,29 @@ func findSimilarImages(targetPath, searchDir string, threshold int) ([]string, e
 		fmt.Println("filepath.Walk: ", err)
 		return resultArr, err
 	}
-	for {
-		select {
-		case pathChan, ok := <-searchChan:
-			resultArr = append(resultArr, pathChan)
-			fmt.Println("for select case1 ", pathChan, ok)
-		default:
-			fmt.Println("for select default: default wait")
-			time.Sleep(time.Second)
-			if scanFileCount >= fileDirCount {
-				fmt.Println("for select default: scan over ", scanFileCount, fileDirCount)
-				return resultArr, nil
+	// 提前加 1, 以防速度太快导致快速退出
+	waitArr.Add(1)
+	go func() {
+		defer waitArr.Done()
+
+		for {
+			select {
+			case pathChan, ok := <-searchChan:
+				resultArr = append(resultArr, pathChan)
+				fmt.Println("for select case1 ", pathChan, ok)
+				waitArr.Done()
+			default:
+				if scanFileCount >= fileDirCount {
+					return
+				}
 			}
 		}
-	}
+	}()
 
+	fmt.Println("wait result")
+	waitArr.Wait()
+	fmt.Println("for select default: scan over ", scanFileCount, fileDirCount)
+	return resultArr, nil
 }
 
 func SearchPic(targetImg, searchImgDir string, threshold int) {

@@ -25,5 +25,5 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o ./honoka_proxy.exe -a -ldfla
 
 
 ### LoveLive 镇楼
-![./lovelive.jpg](./lovelive.jpg)
+![https://github.com/melty-blood/go-ssh-proxy/blob/master/lovelive.jpg](./lovelive.jpg)
 

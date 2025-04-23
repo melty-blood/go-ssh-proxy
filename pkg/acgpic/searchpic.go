@@ -211,8 +211,8 @@ func SearchPic(targetImg, searchImgDir string, threshold int) {
 	// opt := SearchPicOpt{IsNeedWritePic: false}
 	// result, _ := SearchPicCUDA(targetImg, searchImgDir, threshold, &opt)
 
-	result, _ := findSimilarImages(targetImg, searchImgDir, threshold)
-	fmt.Println("result: ", result)
+	result, err := findSimilarImages(targetImg, searchImgDir, threshold)
+	fmt.Println("result: ", result, " | err: ", err)
 	for _, val := range result {
 		fmt.Println("image path: ", val)
 	}

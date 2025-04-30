@@ -30,8 +30,10 @@ func main() {
 	if len(os.Args) <= 2 {
 		fmt.Println("len(os.Args) < 2 ", len(os.Args), os.Args)
 		commandFlag = conf.DefaultCommand
-		if commandIndex := slices.Index(commandArr, os.Args[1]); commandIndex >= 0 {
-			commandFlag = os.Args[1]
+		if (len(os.Args) - 1) >= 1 {
+			if commandIndex := slices.Index(commandArr, os.Args[1]); commandIndex >= 0 {
+				commandFlag = os.Args[1]
+			}
 		}
 	} else {
 		commandFlag = os.Args[1]

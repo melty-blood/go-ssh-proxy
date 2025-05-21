@@ -264,9 +264,8 @@ func sshToServerByJump(serverName string, sshconf *confopt.SSHConfig) error {
 
 		}()
 		log.Println(serverName + ": go func wait")
-		time.Sleep(2 * time.Second)
 		// 防止一直不跳出循环导致客户端无法重新连接代理
-		for i := 0; i < 6; i++ {
+		for i := 0; i < 2; i++ {
 			// for {
 			select {
 			case errStr = <-listenChan:
@@ -531,8 +530,7 @@ func sshToServer(serverName string, sshconf *confopt.SSHConfig) error {
 		}()
 
 		log.Println(serverName + ": go func wait")
-		time.Sleep(2 * time.Second)
-		for i := 0; i < 6; i++ {
+		for i := 0; i < 2; i++ {
 			select {
 			case errStr = <-listenChan:
 				log.Println(serverName + " listen: " + errStr)

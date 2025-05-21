@@ -22,9 +22,7 @@ func main() {
 	}
 
 	var conf *confopt.Config
-	if len(confPath) > 0 {
-		conf = confopt.ReadConf(confPath)
-	}
+	conf = confopt.ReadConf(confPath)
 
 	commandFlag := ""
 	if len(os.Args) <= 2 {

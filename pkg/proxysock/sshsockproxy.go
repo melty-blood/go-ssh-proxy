@@ -35,7 +35,7 @@ func SSHSockProxy(conf *confopt.Config, onlineChan chan string) error {
 
 	if err != nil {
 		log.Printf("Error executing command: %v\n", err)
-		onlineChan <- "RestartSSHSockProxy"
+		// onlineChan <- "RestartSSHSockProxy"
 		return errors.New("Error executing command: " + err.Error())
 	}
 

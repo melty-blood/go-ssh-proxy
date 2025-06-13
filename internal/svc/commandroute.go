@@ -86,7 +86,7 @@ func RunACGPic() {
 	fmt.Println("Program RunACGPic")
 	targetImgFlag := flag.String("target-img", "", "need search image")
 	searchImgDirFlag := flag.String("search-img-dir", "", "search directory")
-	thresholdFlag := flag.Int("threshold", 0, "search directory")
+	thresholdFlag := flag.Int("threshold", 0, "threshold value, this is the similarity of the pictures")
 	jsonFlag := flag.Bool("json", false, "print config with json")
 	confFlag := flag.String("f", "./conf/conf.yaml", "RunACGPic: configure file, default file path ./conf/config.yaml")
 	conf := confopt.ReadConf(*confFlag)
@@ -110,8 +110,8 @@ func RunACGPic() {
 		threshold = *thresholdFlag
 	}
 
-	fmt.Println("------")
+	fmt.Println("----------------")
 	fmt.Println("final parms: ", targetImg, searchImgDir, threshold)
-	fmt.Println("------")
+	fmt.Println("----------------")
 	acgpic.SearchPic(targetImg, searchImgDir, threshold)
 }

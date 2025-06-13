@@ -21,9 +21,7 @@ func main() {
 		confPath = "./conf/conf.yaml"
 	}
 
-	var conf *confopt.Config
-	conf = confopt.ReadConf(confPath)
-
+	var conf *confopt.Config = confopt.ReadConf(confPath)
 	commandFlag := ""
 	if len(os.Args) <= 2 {
 		fmt.Println("len(os.Args) < 2 ", len(os.Args), os.Args)

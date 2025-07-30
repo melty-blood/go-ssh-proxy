@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	var commandArr []string = []string{"sshproxy", "acgpic", "nettouch"}
+	var commandArr []string = []string{"sshproxy", "acgpic", "nettouch", "grep"}
 
 	confPath := ""
 	for key, val := range os.Args {
@@ -24,7 +24,7 @@ func main() {
 	var conf *confopt.Config = confopt.ReadConf(confPath)
 	commandFlag := ""
 	if len(os.Args) <= 2 {
-		fmt.Println("len(os.Args) < 2 ", len(os.Args), os.Args)
+		fmt.Println("len(os.Args) <= 2 ", len(os.Args), os.Args)
 		commandFlag = conf.DefaultCommand
 		if (len(os.Args) - 1) >= 1 {
 			if commandIndex := slices.Index(commandArr, os.Args[1]); commandIndex >= 0 {

@@ -17,6 +17,7 @@ func CommandRoute(commandFlag string) {
 		"sshproxy": RunSSHProxy,
 		"nettouch": RunNetTouch,
 		"acgpic":   RunACGPic,
+		"grep":     RunGrepPro,
 	}
 
 	funcVal, ok := commandMap[commandFlag]
@@ -114,4 +115,24 @@ func RunACGPic() {
 	fmt.Println("final parms: ", targetImg, searchImgDir, threshold)
 	fmt.Println("----------------")
 	acgpic.SearchPic(targetImg, searchImgDir, threshold)
+}
+
+func RunGrepPro() {
+	fmt.Println("Program RunGrepPro")
+
+	showdir := flag.Bool("showdir", false, "print search dir")
+	flag.CommandLine.Parse(os.Args[2:])
+
+	if len(os.Args) < 4 {
+		fmt.Println("lost search param or search dir!")
+		return
+	}
+	searchStr := os.Args[2]
+	searchDir := os.Args[3]
+	if *showdir {
+		searchStr = os.Args[3]
+		searchDir = os.Args[4]
+	}
+	// fmt.Println("os.Args: ", len(os.Args), searchStr, searchDir, *showdir, " | ", os.Args)
+	GrepPro(searchStr, searchDir, *showdir)
 }

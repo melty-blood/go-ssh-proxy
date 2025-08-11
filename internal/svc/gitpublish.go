@@ -10,9 +10,11 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/plumbing"
+	"github.com/go-git/go-git/v6/plumbing/object"
 	"github.com/go-git/go-git/v6/plumbing/transport/http"
 	"github.com/go-git/go-git/v6/plumbing/transport/ssh"
 )
@@ -270,6 +272,15 @@ func PublishCode(opt *confopt.PublishGitOpt) (*confopt.PublishGitOpt, error) {
 	if err != nil {
 		return nil, errors.New("git pull code failed:" + err.Error())
 	}
+
+	// show logs
+	logsArr, err := GetBranchLog(gitRep, 2)
+	if err != nil {
+		return nil, errors.New("git logs err:" + err.Error())
+	}
+	for _, logsV := range logsArr {
+		fmt.Println("log: ", logsV)
+	}
 	return opt, nil
 }
 
@@ -330,6 +341,32 @@ func GitPullCode(gitRep *git.Repository, workTree *git.Worktree, opt *confopt.Pu
 		return errors.New("git pull err:" + err.Error())
 	}
 	return nil
+}
+
+func GetBranchLog(gitRep *git.Repository, limit int) ([]string, error) {
+	logsAdd := []string{}
+	head, err := gitRep.Head()
+	if err != nil {
+		return logsAdd, err
+	}
+
+	cnt := 0
+	cIter, err := gitRep.Log(&git.LogOptions{From: head.Hash()})
+	if err != nil {
+		return logsAdd, err
+	}
+	defer cIter.Close()
+
+	cIter.ForEach(func(c *object.Commit) error {
+		if limit > 0 && cnt >= limit {
+			return nil
+		}
+		logsAdd = append(logsAdd, c.Hash.String()+" | "+c.Author.When.Format(time.DateTime)+" | "+c.Message)
+		cnt++
+		return nil
+	})
+
+	return logsAdd, nil
 }
 
 func buildPublishMap(conf *confopt.Config) (gitMap map[string]*confopt.PublishGitOpt, gitArr []string) {

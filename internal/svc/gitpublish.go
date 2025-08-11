@@ -72,6 +72,7 @@ func PublishSSH(gitConf *confopt.PublishGitOpt) error {
 	if len(publishPath) <= 0 {
 		return errors.New("publishPath is empty, please check select env")
 	}
+	// last string is '/'
 	if publishPath[len(publishPath)-1:] != string(os.PathSeparator) {
 		publishPath = publishPath + string(os.PathSeparator)
 	}
@@ -113,6 +114,7 @@ func PublishSSH(gitConf *confopt.PublishGitOpt) error {
 		Port:         gitConf.SSHPort,
 	}
 	conn, _ := sshcmd.SSHConnect(sshConf)
+	// upload file to server
 	fileMap := []*sshcmd.SftpFile{
 		{
 			LFilePath: gitConf.TargzPath,
@@ -153,7 +155,7 @@ func PublishInteractionGit(conf *confopt.Config) (*confopt.PublishGitOpt, error)
 	)
 	gitMap, gitkeyArr := buildPublishMap(conf)
 
-	// select env
+	// select git name
 	fmt.Printf("Select you git key? (%s):", strings.Join(gitkeyArr, ","))
 
 	selectGitScan := bufio.NewScanner(os.Stdin)
@@ -217,11 +219,9 @@ func PublishCode(opt *confopt.PublishGitOpt) (*confopt.PublishGitOpt, error) {
 	}
 	workTree, err := gitRep.Worktree()
 	if gitReference.Name().Short() != opt.CheckBranch {
-
 		fmt.Println("gitRep.workTree: ", err)
-
 		err = workTree.Checkout(&git.CheckoutOptions{
-			// Hash: 新分支将指向这个 Commit
+			// Hash: new branch point to this Commit
 			Hash:   remoteCommitHash,
 			Branch: plumbing.NewBranchReferenceName(opt.CheckBranch),
 			Create: true,
@@ -230,6 +230,7 @@ func PublishCode(opt *confopt.PublishGitOpt) (*confopt.PublishGitOpt, error) {
 			return nil, errors.New("git checkout branch failed:" + err.Error())
 		}
 	}
+	fmt.Println("git pull head name:", gitReference.Name().Short())
 	err = GitPullCode(gitRep, workTree, opt)
 	if err != nil {
 		return nil, errors.New("git pull code failed:" + err.Error())
@@ -275,7 +276,6 @@ func GitPullCode(gitRep *git.Repository, workTree *git.Worktree, opt *confopt.Pu
 	if err != nil {
 		return err
 	}
-	fmt.Println("git pull head name:", head.Name().Short())
 	pullOpt := &git.PullOptions{
 		RemoteName:    opt.RemoteName,
 		ReferenceName: plumbing.NewBranchReferenceName(head.Name().Short()),

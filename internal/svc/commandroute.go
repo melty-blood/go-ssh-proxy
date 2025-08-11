@@ -146,10 +146,7 @@ func RunPublishGit() {
 	confFlag := flag.String("f", "./conf/conf.yaml", "RunACGPic: configure file, default file path ./conf/config.yaml")
 	flag.CommandLine.Parse(os.Args[2:])
 	conf := confopt.ReadConf(*confFlag)
-	// if true {
-	// 	TempSSH(conf)
-	// 	return
-	// }
+
 	var (
 		err         error
 		gitInfoConf *confopt.PublishGitOpt

@@ -56,44 +56,6 @@ type (
 	}
 )
 
-func TempSSH(conf *confopt.Config) {
-	var err error
-	// err = tarzip.CreateTargz("/dev/shm/temp/numchange_fix_data", "/dev/shm/num.tar.gz", false)
-	// err = tarzip.CreateTargz("/dev/shm/individual_verify.csv", "/dev/shm/individual_verify_go.tar.gz")
-	fmt.Println("CreateTargz err: ", err)
-
-	sshConf := &sshcmd.SSHConf{
-		User:         "akiha",
-		Password:     "lovelive",
-		IdentityFile: "",
-		Host:         "192.168.51.198",
-		Port:         "28606",
-	}
-	conn, _ := sshcmd.SSHConnect(sshConf)
-	cmdOut, err := sshcmd.RunCmdWithSSH([]string{"pwd", "ls -latr", "cd /dev/shm", "pwd", "ls /nodir", "ls /root/*"}, conn)
-	fmt.Println("cmdOut: ", cmdOut, err)
-	fmt.Println("----------------------------------------------------")
-	for _, v := range cmdOut[1:] {
-		fmt.Println("cmdOut+++++++++++: ", v)
-	}
-	if true {
-		os.Exit(66)
-	}
-
-	fileMap := []*sshcmd.SftpFile{
-		{
-			LFilePath: "/dev/shm/temp/not_sign.txt",
-			RFilePath: "/home/akiha/lovelive/not_sign.txt",
-		},
-		{
-			LFilePath: "/dev/shm/temp/qinyidai_no_file.txt",
-			RFilePath: "/home/akiha/lovelive/qinyidai_no_file.txt",
-		},
-	}
-	err = sshcmd.SSHUploadFile(fileMap, conn)
-	fmt.Println("err: ", err)
-}
-
 func PublishSSH(gitConf *confopt.PublishGitOpt) error {
 	// os.Remove()
 	var (

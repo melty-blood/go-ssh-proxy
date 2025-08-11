@@ -38,6 +38,10 @@ type (
 			TOHttp     string `json:",optional"`
 			OpenStatus bool   `json:",optional"`
 		}
+
+		Publish struct {
+			GitList []*PublishGitOpt
+		}
 	}
 	SSHConfig struct {
 		ServerName     string
@@ -61,5 +65,33 @@ type (
 		JumpUser     string `json:",optional"`
 		JumpPassword string `json:",optional"`
 		JumpPriKey   string `json:",optional"`
+	}
+
+	PublishGitOpt struct {
+		KeyName              string
+		RepoUrl              string
+		ClonePath            string
+		TargzPath            string
+		TargzIsNeedTopDir    bool
+		CheckBranch          string
+		RemoteName           string
+		RemoteBranch         string
+		SSHGitUser           string `json:",optional"`
+		SSHGitIdentityFile   string `json:",optional"`
+		SSHGitIdentityPasswd string `json:",optional"`
+		HttpsGitUser         string `json:",optional"`
+		HttpsGitPat          string `json:",optional"`
+		EnvList              []PublishGitEnvList
+		SelectEnv            string `json:",optional"`
+		SftpUploadPath       string
+		SSHHost              string
+		SSHPort              string
+		SSHUser              string
+		SSHPasswd            string
+		SSHCmd               []string
+	}
+
+	PublishGitEnvList struct {
+		EnvNum, EnvPath string
 	}
 )

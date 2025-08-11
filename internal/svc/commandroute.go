@@ -9,15 +9,17 @@ import (
 	"honoka/pkg/network"
 	"honoka/pkg/proxysock"
 	"os"
+	"strings"
 )
 
 func CommandRoute(commandFlag string) {
-
+	fmt.Println("Run CMD: ", commandFlag)
 	commandMap := map[string]func(){
 		"sshproxy": RunSSHProxy,
 		"nettouch": RunNetTouch,
 		"acgpic":   RunACGPic,
 		"grep":     RunGrepPro,
+		"publish":  RunPublishGit,
 	}
 
 	funcVal, ok := commandMap[commandFlag]
@@ -135,4 +137,44 @@ func RunGrepPro() {
 	}
 	// fmt.Println("os.Args: ", len(os.Args), searchStr, searchDir, *showdir, " | ", os.Args)
 	GrepPro(searchStr, searchDir, *showdir)
+}
+
+func RunPublishGit() {
+	fmt.Println("Program RunPublishGit")
+
+	fastOrderStr := flag.String("fast-order", "", "fast select git and env")
+	confFlag := flag.String("f", "./conf/conf.yaml", "RunACGPic: configure file, default file path ./conf/config.yaml")
+	flag.CommandLine.Parse(os.Args[2:])
+	conf := confopt.ReadConf(*confFlag)
+	// if true {
+	// 	TempSSH(conf)
+	// 	return
+	// }
+	var (
+		err         error
+		gitInfoConf *confopt.PublishGitOpt
+	)
+	if len(*fastOrderStr) > 0 {
+		fastOrderArr := strings.Split(*fastOrderStr, ",")
+		if len(fastOrderArr) < 2 {
+			fmt.Println("Error fast order failed: must 'KeyName,envNum'")
+			return
+		}
+		fastOrder := &PublishFastOrder{
+			GitKey: fastOrderArr[0],
+			GitEnv: fastOrderArr[1],
+		}
+		gitInfoConf, err = PublishFastOrderGit(fastOrder, conf)
+	} else {
+		gitInfoConf, err = PublishInteractionGit(conf)
+	}
+	if err != nil {
+		fmt.Println("publish err: ", err)
+		return
+	}
+
+	err = PublishSSH(gitInfoConf)
+	if err != nil {
+		fmt.Println("PublishSSH err: ", err)
+	}
 }

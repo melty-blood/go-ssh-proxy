@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	var commandArr []string = []string{"sshproxy", "acgpic", "nettouch", "grep"}
+	var commandArr []string = []string{"sshproxy", "acgpic", "nettouch", "grep", "publish"}
 
 	confPath := ""
 	for key, val := range os.Args {

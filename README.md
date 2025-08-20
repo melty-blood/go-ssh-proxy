@@ -6,6 +6,8 @@
 > 1. 工具可以达到 `ssh -NL 20022:IP_ADDR:22 -J TypeMoon satsuki@SERVER_IP -p 8606` 这样的效果
 > 2. 具有网络检测功能, 可以查看是否能到达某个ip和端口
 > 3. 附加功能: 查看本地某张图片在其他目录是否也存在, 就是查重
+> 4. grep 利用 goroutine 进行文件内容搜索
+> 5. publish 简单的代码发布程序, 可以看作mini jenkins, 具体配置可以参考`conf/template_conf.yaml`
 
 ------
 

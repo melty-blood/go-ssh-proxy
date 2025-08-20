@@ -7,6 +7,41 @@ AcgPic:
   SearchImgDir: "/dev/shm/temp"
   Threshold: 20
 
+Publish:
+  GitList: [
+    {
+      "KeyName": "lovelive", # only one, key name
+      "RepoUrl": "GIT_PATH",
+      "ClonePath": "/dev/shm/code_dir/lovelive_code",
+      "TargzPath": "/dev/shm/code_dir/code.tar.gz",
+      "TargzIsNeedTopDir": false,
+      "CheckBranch": "CHECKOUT_BRANCH", # local branch
+      "RemoteName": "origin",
+      "RemoteBranch": "REMOTE_BRANCH",
+      "SSHGitUser": "git",
+      "SSHGitIdentityFile": "SSH_GIT_AUTH_KEY",
+      "SSHGitIdentityPasswd": "",
+      "HttpsGitUser": "GIT_USER",
+      "HttpsGitPat": "GPT",
+      "EnvList": [
+        {
+          "EnvNum": "env1",
+          "EnvPath": "/home/akiha/lovelive/env_one",
+        },
+        {
+          "EnvNum": "ll",
+          "EnvPath": "/home/akiha/lovelive/temp_code/code",
+        },
+      ],
+      "SftpUploadPath": "TARGET_UPLOAD_PATH", # /home/akiha/lovelive/code.tar.gz
+      "SSHHost": "SSH_HOST_IP",
+      "SSHPort": "PORT",
+      "SSHUser": "USER_NAME",
+      "SSHPasswd": "ssh_PASSWORD",
+      "SSHCmd": ["pwd", "cd /home/akiha/lovelive/", "pwd", "ls -lh", "mv ${UPLOAD_PATH} ${SSH_ENV_PATH}", "tar -zxf ${PACKAGE_PATH} -C ${SSH_ENV_PATH}", "rm -f ${PACKAGE_PATH}", "cd ${SSH_ENV_PATH}", "pwd", "echo 'php init --env=${ENV_NAME} --overwrite=a'", "chown -R akiha:akiha ./*"],
+    }
+  ]
+
 # 此节点配置用于代理内网访问, 类似于翻墙到内网, 可以不用在内网安装任何软件
 SockProxy:
   ServerName: "paydayloan-proxy"

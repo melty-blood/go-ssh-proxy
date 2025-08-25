@@ -61,7 +61,7 @@ SockToHttp:
   ServerName: socktohttp-all
   OpenStatus: true
   SockAddr: 127.0.0.1:22122
-  TOHttp: 127.0.0.1:7890
+  ToHttp: 127.0.0.1:7890
 
 ServerConf: 
   # 跳板机 相当于ssh -J 选项

@@ -6,6 +6,7 @@ toolchain go1.23.10
 
 require (
 	github.com/deatil/go-cryptobin v1.0.2053
+	github.com/elazarl/goproxy v1.7.2
 	github.com/go-git/go-git/v6 v6.0.0-20250728093604-6aaf1933ecab
 	github.com/pkg/sftp v1.13.9
 	github.com/zeromicro/go-zero v1.7.4
@@ -38,5 +39,6 @@ require (
 	go.uber.org/automaxprocs v1.6.0 // indirect
 	golang.org/x/exp v0.0.0-20250531010427-b6e5de432a8b // indirect
 	golang.org/x/sys v0.34.0 // indirect
+	golang.org/x/text v0.27.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )

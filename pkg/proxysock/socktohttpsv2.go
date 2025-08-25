@@ -1,3 +1,4 @@
+// Deprecated: As of next version 1.2.2
 package proxysock
 
 import (
@@ -19,6 +20,7 @@ const (
 	proxyAddress  = "127.0.0.1:7890"  // HTTP/HTTPS 代理地址
 )
 
+// Deprecated: As of next version 1.2.2
 func TempAA(conf *confopt.Config) error {
 	// 创建 SOCKS5 拨号器
 	dialer, err := proxy.SOCKS5("tcp", socks5Address, nil, proxy.Direct)

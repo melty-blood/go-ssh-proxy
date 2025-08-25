@@ -1,3 +1,4 @@
+// Deprecated: As of next version 1.2.2
 package proxysock
 
 import (
@@ -13,13 +14,14 @@ import (
 	"golang.org/x/net/proxy"
 )
 
+// Deprecated: As of next version 1.2.2
 func SocksTOHttp(conf *confopt.Config) error {
 
 	// SOCKS5 代理地址（由 SSH -ND 创建）
-	socks5Addr := conf.SockTOHttp.SockAddr // 替换为你的 SOCKS5 代理地址
+	socks5Addr := conf.SockToHttp.SockAddr // 替换为你的 SOCKS5 代理地址
 
 	// 启动 HTTP 代理服务
-	httpProxyAddr := conf.SockTOHttp.TOHttp
+	httpProxyAddr := conf.SockToHttp.ToHttp
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 

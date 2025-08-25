@@ -32,10 +32,10 @@ type (
 			SSHCommand     string `json:",optional"`
 		}
 
-		SockTOHttp struct {
+		SockToHttp struct {
 			ServerName string `json:",optional"`
 			SockAddr   string `json:",optional"`
-			TOHttp     string `json:",optional"`
+			ToHttp     string `json:",optional"`
 			OpenStatus bool   `json:",optional"`
 		}
 

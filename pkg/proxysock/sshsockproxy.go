@@ -9,6 +9,7 @@ import (
 	"strings"
 )
 
+// Deprecated: As of next version 1.2.2
 func SSHSockProxy(conf *confopt.Config, onlineChan chan string) error {
 	sshConf := conf.SockProxy
 

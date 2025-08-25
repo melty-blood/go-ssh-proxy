@@ -20,17 +20,18 @@ func UseSSHFunc(conf *confopt.Config) {
 }
 
 func RunSockToHttp(conf *confopt.Config, onlineChan chan string) {
-	if !conf.SockTOHttp.OpenStatus {
-		log.Println("RunSockToHttp status false ", conf.SockTOHttp.SockAddr, conf.SockTOHttp.TOHttp)
+	if !conf.SockToHttp.OpenStatus {
+		log.Println("RunSockToHttp status false ", conf.SockToHttp.SockAddr, conf.SockToHttp.ToHttp)
 		return
 	}
 	var (
 		toHttpCount sync.Map
 	)
 	restartChan := make(chan string, 6)
-	log.Println("start sock to http ", conf.SockTOHttp.SockAddr, conf.SockTOHttp.TOHttp)
+	log.Println("start sock to http ", conf.SockToHttp.SockAddr, conf.SockToHttp.ToHttp)
 	if conf.SockProxy.OpenStatus {
-		go SSHSockProxy(conf, onlineChan)
+		// go SSHSockProxy(conf, onlineChan)
+		go RunSSHSock5(conf, onlineChan)
 	} else {
 		onlineChan <- "RunProxyServer"
 	}
@@ -39,23 +40,24 @@ func RunSockToHttp(conf *confopt.Config, onlineChan chan string) {
 		select {
 		case online, ok := <-onlineChan:
 			if !ok {
-				log.Println("Error RunSockToHttp onlineChan read fail: ", conf.SockTOHttp.TOHttp)
+				log.Println("Error RunSockToHttp onlineChan read fail: ", conf.SockToHttp.ToHttp)
 			}
 			log.Println("RunSockToHttp onlineChan value: ", online)
 
 			if online == "RunProxyServer" {
-				log.Println("RunSockToHttp SocksTOHttp start: ", conf.SockTOHttp.TOHttp)
+				log.Println("RunSockToHttp SocksTOHttp start: ", conf.SockToHttp.ToHttp)
 				go StartSockToHttp(conf, &toHttpCount, restartChan)
 			}
 
 			if online == "RestartSSHSockProxy" {
 				log.Println("SSHSockProxy restart")
-				go SSHSockProxy(conf, onlineChan)
+				// go SSHSockProxy(conf, onlineChan)
+				go RunSSHSock5(conf, onlineChan)
 			}
 		case restartTask, ok := <-restartChan:
 			if !ok {
-				log.Println("Error RunSockToHttp SocksTOHttp restart read channel fail: ", conf.SockTOHttp.TOHttp)
-				restartChan <- conf.SockTOHttp.ServerName
+				log.Println("Error RunSockToHttp SocksTOHttp restart read channel fail: ", conf.SockToHttp.ToHttp)
+				restartChan <- conf.SockToHttp.ServerName
 				break
 			}
 			log.Println("Error RunSockToHttp SocksTOHttp restart: ", restartTask)
@@ -70,7 +72,6 @@ func RunSockToHttp(conf *confopt.Config, onlineChan chan string) {
 }
 
 func RunProxyServer(conf *confopt.Config, onlineChan chan string) {
-	// conf := ReadConf(confFile)
 	var (
 		sshCount sync.Map
 	)
@@ -183,19 +184,18 @@ func SSHProxyStart(
 }
 
 func StartSockToHttp(conf *confopt.Config, toHttpCount *sync.Map, restartChan chan string) error {
-	if toHttpCountNum, ok := toHttpCount.Load(conf.SockTOHttp.ServerName); !ok {
-		toHttpCount.Store(conf.SockTOHttp.ServerName, 0)
+	if toHttpCountNum, ok := toHttpCount.Load(conf.SockToHttp.ServerName); !ok {
+		toHttpCount.Store(conf.SockToHttp.ServerName, 0)
 	} else {
 		sshNum, _ := toHttpCountNum.(int)
-		toHttpCount.Store(conf.SockTOHttp.ServerName, sshNum+1)
+		toHttpCount.Store(conf.SockToHttp.ServerName, sshNum+1)
 	}
 
-	log.Println("StartSockToHttp Start: ", conf.SockTOHttp.ServerName)
-	err := SocksTOHttp(conf)
-	// err := TempAA(conf)
+	log.Println("StartSockToHttp Start: ", conf.SockToHttp.ServerName)
+	err := SocksToHttps(conf)
 	if err != nil {
-		log.Println("Error StartSockToHttp SSH Fail: ", err, conf.SockTOHttp.ServerName)
-		restartChan <- conf.SockTOHttp.ServerName
+		log.Println("Error StartSockToHttp SSH Fail: ", err, conf.SockToHttp.ServerName)
+		restartChan <- conf.SockToHttp.ServerName
 	}
 	return err
 }

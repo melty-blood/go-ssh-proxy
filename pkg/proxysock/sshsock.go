@@ -32,7 +32,7 @@ func PublicKeyAuth(priFile string) (ssh.AuthMethod, error) {
 	return ssh.PublicKeys(signer), nil
 }
 
-func sshToServerByJump(serverName string, sshconf *confopt.SSHConfig) error {
+func sshToServerByJump(baseCtx context.Context, serverName string, sshconf *confopt.SSHConfig) error {
 	var (
 		clientNum     int
 		err           error
@@ -113,24 +113,34 @@ func sshToServerByJump(serverName string, sshconf *confopt.SSHConfig) error {
 	}
 	defer localListener.Close()
 
-	log.Printf("Forwarding %s to %s via %s", localHostPort, remoteAddr, targetHost)
+	log.Printf("sshToServerByJump->Forwarding %s to %s >> %s", localHostPort, remoteAddr, serverName)
 	listenChan := make(chan string, 66)
 	defer close(listenChan)
 
 	// 若一定时间没有客户端接入主动退出重新连接
 	baseConnActionChan := make(chan string, 266)
 	defer close(baseConnActionChan)
-	go baseConnCancel(baseConnActionChan, serverName, localListener)
+	go baseConnCancel(baseCtx, baseConnActionChan, serverName, localListener)
+
+	// 客户端每次发送则进行记录并告诉任务重新计时
+	listenHasActionChan := make(chan string, 266)
+	defer close(listenHasActionChan)
+	localToRemoteChan := make(chan int, 266)
+	defer close(localToRemoteChan)
+
+	// 用于监听客户端连接后是否在一定时间内有响应, 如果没有则需要断开
+	waitCtx, waitCancel := context.WithCancel(context.Background())
+	defer waitCancel()
+	go connTimeoutCancel(waitCtx, waitCancel, serverName, listenHasActionChan)
 
 	// 处理本地连接并转发
-	// clientChan := make(chan string, 66)
-	// defer close(clientChan)
 	for {
 		localConn, err := localListener.Accept()
 		log.Println("start localListener.Accept(): ", localConn, err)
 		if err != nil && strings.Contains(err.Error(), "use of closed network connection") {
 			return nil
 		}
+		defer localConn.Close()
 
 		select {
 		case listenChanStr, ok := <-listenChan:
@@ -156,19 +166,8 @@ func sshToServerByJump(serverName string, sshconf *confopt.SSHConfig) error {
 			continue
 		}
 
-		// 客户端每次发送则进行记录并告诉任务重新计时
-		listenHasActionChan := make(chan string, 166)
-		defer close(listenHasActionChan)
-
-		// 用于监听客户端连接后是否在一定时间内有响应, 如果没有则需要断开
-		waitCtx, waitCancel := context.WithCancel(context.Background())
-		defer waitCancel()
-		go connTimeoutCancel(waitCtx, waitCancel, serverName, listenHasActionChan)
-
 		go func() {
-			defer localConn.Close()
 			log.Println("go func start targetClient.Dial: ", remoteAddr)
-
 			// 建立到目标服务器的连接
 			remoteConn, err := targetClient.Dial("tcp", remoteAddr)
 			log.Println("start targetClient.Dial: ", err)
@@ -179,18 +178,24 @@ func sshToServerByJump(serverName string, sshconf *confopt.SSHConfig) error {
 			}
 			defer remoteConn.Close()
 
+			readCtx, readCancel := context.WithCancel(context.Background())
+			defer readCancel()
+
+			// 当前goroutine不能放在下面的for中, 因为Read会阻塞导致无法执行到
+			go connClose(waitCtx, serverName, localConn, remoteConn)
+
 			// +++++++++++++++++ client => server START +++++++++++++++++
-			localToRemoteChan := make(chan int, 100)
 			go func() {
 				defer func() {
-					close(localToRemoteChan)
 					remoteConn.Close()
 					localConn.Close()
+					readCancel()
 				}()
 
-				// 当前goroutine不能放在下面的for中, 因为Read会阻塞导致无法执行到
-				go connClose(waitCtx, serverName, localConn, remoteConn)
-
+				// 判断通道是否有关闭的
+				if !channelIsCloseAny(baseConnActionChan, listenHasActionChan) || !channelIsCloseAny(localToRemoteChan) {
+					return
+				}
 				for {
 					buf := make([]byte, 8192)
 					n, err := localConn.Read(buf)
@@ -215,7 +220,7 @@ func sshToServerByJump(serverName string, sshconf *confopt.SSHConfig) error {
 						listenHasActionChan <- actionChanStr
 					}
 					if err == io.EOF {
-						log.Println(serverName + " client => server go func: err is io.EOF => return")
+						log.Println("client=>server go func: err is io.EOF => return by " + serverName)
 						return
 					}
 
@@ -224,21 +229,24 @@ func sshToServerByJump(serverName string, sshconf *confopt.SSHConfig) error {
 			go func() {
 				for {
 					select {
+					case _, ok := <-readCtx.Done():
+						log.Println("client=>server go func select: readCtx close by "+serverName, ok)
+						return
 					case _, ok := <-localToRemoteChan:
 						// fmt.Println("byteLens, ok", byteLens, ok)
 						if !ok {
-							log.Println(serverName + " client => server go func select: ok is false => localToRemoteChan close")
+							log.Println("client=>server go func select: ok is false => localToRemoteChan close by " + serverName)
 							return
 						}
 						// 处理客户端数据到服务器的传输
 					default:
-						log.Println(serverName + " client => server go func select default: no error")
+						log.Println("client=>server go func select default: no error by " + serverName)
 						time.Sleep(6 * time.Second)
 					}
 				}
 			}()
 
-			// 拦截和记录数据流量
+			// 获取发送和接收记录数据流量
 			// go func() {
 			// 	// 读取客户端 -> 远程服务器的数据
 			// 	// clientReader := io.TeeReader(localConn, os.NewFile(uintptr(syscall.Stdin), "/dev/shm/temp_proxy_out"))
@@ -259,13 +267,14 @@ func sshToServerByJump(serverName string, sshconf *confopt.SSHConfig) error {
 
 			// 转发数据
 			// go io.Copy(remoteConn, localConn)
-			io.Copy(localConn, remoteConn)
+			_, err = io.Copy(localConn, remoteConn)
+			log.Println("sshToServerByJump io.Copy:", err)
 			// +++++++++++++++++ server => client END +++++++++++++++++
 
 		}()
-		log.Println(serverName + ": go func wait")
+
 		// 防止一直不跳出循环导致客户端无法重新连接代理
-		for i := 0; i < 2; i++ {
+		for range 2 {
 			// for {
 			select {
 			case errStr = <-listenChan:
@@ -282,7 +291,7 @@ func sshToServerByJump(serverName string, sshconf *confopt.SSHConfig) error {
 	}
 }
 
-func baseConnCancel(connActionChan chan string, servName string, localConn net.Listener) {
+func baseConnCancel(baseCtx context.Context, connActionChan chan string, servName string, localConn net.Listener) {
 
 	time.Sleep(6 * time.Second)
 	var baseNumInt int = 0
@@ -292,17 +301,23 @@ func baseConnCancel(connActionChan chan string, servName string, localConn net.L
 		case connActionStr, ok := <-connActionChan:
 			if !ok {
 				localConn.Close()
-				log.Println(servName + " localListener close now by connActionChan close!")
+				log.Println("baseConnCancel localListener close now by connActionChan close!", servName)
 				return
 			}
 			baseNumInt = 0
 			log.Println("baseConnCancel baseConnChan count has new value: ", connActionStr)
+
+		case nilStruct, ok := <-baseCtx.Done():
+			localConn.Close()
+			log.Println("baseConnCancel localListener close now by baseCtx Cancel!", servName, " | ", nilStruct, ok)
+			return
+
 		default:
 			time.Sleep(time.Second)
 			baseNumInt++
 			if baseNumInt > 600 {
 				localConn.Close()
-				log.Println(servName+" localListener close now! ", baseNumInt)
+				log.Println("baseConnCancel localListener close now! ", servName, baseNumInt)
 
 				return
 			}
@@ -312,7 +327,6 @@ func baseConnCancel(connActionChan chan string, servName string, localConn net.L
 
 func connTimeoutCancel(ctx context.Context, cancel context.CancelFunc, serverName string, hasActionChan chan string) {
 
-	log.Println(serverName + " ready cancel in connTimeoutCancel")
 	exitChan := make(chan string, 6)
 	defer close(exitChan)
 
@@ -345,7 +359,7 @@ func connTimeoutCancel(ctx context.Context, cancel context.CancelFunc, serverNam
 		select {
 		case exitStr := <-exitChan:
 			cancel()
-			log.Println(serverName+" cancel success ++++++++ ", exitStr, " | ", ctx.Err().Error())
+			log.Println("cancel success ++++++++ ", serverName, exitStr, " | ", ctx.Err().Error())
 			return
 		default:
 			time.Sleep(1 * time.Second)
@@ -367,7 +381,7 @@ func connClose(ctx context.Context, serverName string, local, remote net.Conn) {
 	}
 }
 
-func sshToServer(serverName string, sshconf *confopt.SSHConfig) error {
+func sshToServer(baseCtx context.Context, serverName string, sshconf *confopt.SSHConfig) error {
 	var (
 		clientNum     int
 		err           error
@@ -410,14 +424,25 @@ func sshToServer(serverName string, sshconf *confopt.SSHConfig) error {
 	}
 	defer localListener.Close()
 
-	log.Printf("Forwarding %s to %s via %s no jump", localHostPort, remoteAddr, targetHost)
+	log.Printf("sshToServer->Forwarding %s to %s >> %s,no jump", localHostPort, remoteAddr, serverName)
 	listenChan := make(chan string, 66)
 	defer close(listenChan)
 
 	// 若一定时间没有客户端接入应该主动退出重新连接
 	baseConnActionChan := make(chan string, 266)
 	defer close(baseConnActionChan)
-	go baseConnCancel(baseConnActionChan, serverName, localListener)
+	go baseConnCancel(baseCtx, baseConnActionChan, serverName, localListener)
+
+	// 客户端每次发送则进行记录并告诉任务重新计时
+	listenHasActionChan := make(chan string, 266)
+	defer close(listenHasActionChan)
+	localToRemoteChan := make(chan int, 266)
+	defer close(localToRemoteChan)
+
+	// 用于监听客户端连接后是否在一定时间内有响应, 如果没有则需要断开
+	waitCtx, waitCancel := context.WithCancel(context.Background())
+	defer waitCancel()
+	go connTimeoutCancel(waitCtx, waitCancel, serverName, listenHasActionChan)
 
 	// 处理本地连接并转发
 	for {
@@ -426,6 +451,7 @@ func sshToServer(serverName string, sshconf *confopt.SSHConfig) error {
 		if err != nil && strings.Contains(err.Error(), "use of closed network connection") {
 			return nil
 		}
+		defer localConn.Close()
 
 		select {
 		case listenChanStr, ok := <-listenChan:
@@ -451,18 +477,8 @@ func sshToServer(serverName string, sshconf *confopt.SSHConfig) error {
 			continue
 		}
 
-		// 客户端每次发送则进行记录并告诉任务重新计时
-		listenHasActionChan := make(chan string, 166)
-		defer close(listenHasActionChan)
-
-		// 用于监听客户端连接后是否在一定时间内有响应, 如果没有则需要断开
-		waitCtx, waitCancel := context.WithCancel(context.Background())
-		defer waitCancel()
-		go connTimeoutCancel(waitCtx, waitCancel, serverName, listenHasActionChan)
-
 		go func() {
-			defer localConn.Close()
-
+			log.Println("go func start targetClient.Dial: ", remoteAddr)
 			// 建立到目标服务器的连接
 			remoteConn, err := targetConn.Dial("tcp", remoteAddr)
 			log.Println("go func after targetConn.Dial: ", err)
@@ -473,13 +489,23 @@ func sshToServer(serverName string, sshconf *confopt.SSHConfig) error {
 			}
 			defer remoteConn.Close()
 
-			localToRemoteChan := make(chan int, 100)
+			readCtx, readCancel := context.WithCancel(context.Background())
+			defer readCancel()
+
+			// 当前goroutine不能放在下面的for中, 因为Read会阻塞导致无法执行到
+			go connClose(waitCtx, serverName, localConn, remoteConn)
+
 			go func() {
-				defer close(localToRemoteChan)
+				defer func() {
+					remoteConn.Close()
+					localConn.Close()
+					readCancel()
+				}()
 
-				// 当前goroutine不能放在下面的for中, 因为Read会阻塞导致无法执行到
-				go connClose(waitCtx, serverName, localConn, remoteConn)
-
+				// 判断通道是否有关闭的
+				if !channelIsCloseAny(baseConnActionChan, listenHasActionChan) || !channelIsCloseAny(localToRemoteChan) {
+					return
+				}
 				for {
 					buf := make([]byte, 8192)
 					n, err := localConn.Read(buf)
@@ -504,7 +530,7 @@ func sshToServer(serverName string, sshconf *confopt.SSHConfig) error {
 						listenHasActionChan <- actionChanStr
 					}
 					if err == io.EOF {
-						log.Println(serverName + " client => server go func: err is io.EOF => return")
+						log.Println("client=>server go func: err is io.EOF => return by " + serverName)
 						return
 					}
 
@@ -513,24 +539,27 @@ func sshToServer(serverName string, sshconf *confopt.SSHConfig) error {
 			go func() {
 				for {
 					select {
+					case _, ok := <-readCtx.Done():
+						log.Println("client=>server go func select: readCtx close by "+serverName, ok)
+						return
 					case _, ok := <-localToRemoteChan:
 						if !ok {
-							log.Println(serverName + " client => server go func select: ok is false => localToRemoteChan close")
+							log.Println("client=>server go func select: ok is false => localToRemoteChan close by " + serverName)
 							return
 						}
 						// 处理客户端数据到服务器的传输
 					default:
-						log.Println(serverName + " client => server go func select default: no error")
+						log.Println("client=>server go func select default: no error by " + serverName)
 						time.Sleep(6 * time.Second)
 					}
 				}
 			}()
 
-			io.Copy(localConn, remoteConn)
+			_, err = io.Copy(localConn, remoteConn)
+			log.Println("sshToServer io.Copy:", err)
 		}()
 
-		log.Println(serverName + ": go func wait")
-		for i := 0; i < 2; i++ {
+		for range 2 {
 			select {
 			case errStr = <-listenChan:
 				log.Println(serverName + " listen: " + errStr)
@@ -546,4 +575,18 @@ func sshToServer(serverName string, sshconf *confopt.SSHConfig) error {
 
 	}
 
+}
+
+func channelIsCloseAny[CN ~chan VAL, VAL string | int](chanArr ...CN) bool {
+	for _, chanVal := range chanArr {
+		select {
+		case _, ok := <-chanVal:
+			if !ok {
+				return false
+			}
+		default:
+			return true
+		}
+	}
+	return true
 }

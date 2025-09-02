@@ -2,6 +2,7 @@
 package proxysock
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -129,13 +130,19 @@ func handleSocksConn(local net.Conn, sshClient *ssh.Client) {
 	// pipe data both ways
 	done := make(chan struct{}, 2)
 	go func() {
-		_, _ = io.Copy(remote, local)
+		_, err = io.Copy(remote, local)
 		remote.Close()
 		done <- struct{}{}
+		if err != nil {
+			log.Println("handleSocksConn-Copy remote->local err:", err)
+		}
 	}()
 	go func() {
-		_, _ = io.Copy(local, remote)
+		_, err = io.Copy(local, remote)
 		local.Close()
+		if err != nil {
+			log.Println("handleSocksConn-Copy local->remote err:", err)
+		}
 		done <- struct{}{}
 	}()
 	<-done
@@ -143,25 +150,8 @@ func handleSocksConn(local net.Conn, sshClient *ssh.Client) {
 	log.Printf("handleSocksConn-connection %s closed", dest)
 }
 
-func PublicKeyAuthFuncTemp(keyPath string, passphrase string) (ssh.AuthMethod, error) {
-	keyBytes, err := os.ReadFile(keyPath)
-	if err != nil {
-		return nil, err
-	}
-	var signer ssh.Signer
-	if passphrase == "" {
-		signer, err = ssh.ParsePrivateKey(keyBytes)
-	} else {
-		signer, err = ssh.ParsePrivateKeyWithPassphrase(keyBytes, []byte(passphrase))
-	}
-	if err != nil {
-		return nil, err
-	}
-	return ssh.PublicKeys(signer), nil
-}
-
 // TIP: ssh -ND 22122
-func RunSSHSock5(conf *confopt.Config, onlineChan chan string) error {
+func RunSSHSock5(ctx context.Context, conf *confopt.Config, onlineChan chan string) error {
 	proxyOpt := conf.SockProxy
 	var (
 		user    = proxyOpt.ServerUser
@@ -223,13 +213,30 @@ func RunSSHSock5(conf *confopt.Config, onlineChan chan string) error {
 		time.Sleep(time.Second)
 		onlineChan <- "RunProxyServer"
 	}()
+	go sock5Cancel(ctx, ln, sshClient)
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			log.Printf("accept error: %v", err)
-			continue
+			log.Printf("RunSSHSock5: accept error: %v", err)
+			break
 		}
 		go handleSocksConn(conn, sshClient)
+	}
+	return err
+}
+
+func sock5Cancel(ctx context.Context, listen net.Listener, sshClient *ssh.Client) {
+	for {
+		select {
+		case <-ctx.Done():
+			listen.Close()
+			sshClient.Close()
+			log.Println("sock5Cancel: ctx.Done")
+			return
+		default:
+			time.Sleep(time.Second)
+		}
+
 	}
 }
 
@@ -255,13 +262,30 @@ func keepAliveSendReq(sshClient *ssh.Client, keepAlive int) {
 	time.Sleep(time.Second)
 	for {
 		sendOk, sendResByte, err = sshClient.SendRequest("tcpip-forward", true, ssh.Marshal(&req))
-		// err = ssh.Unmarshal(sendResByte, &reply)
-		// fmt.Println("err: ", err, reply)
 		if err != nil {
-			log.Println("RunSSHSock5: sshClient.SendRequest:", sendOk, " | ", sendResByte, reply, " | ", err)
-			log.Printf("keepalive failed: %v", err)
+			log.Println("keepAliveSendReq->Error:RunSSHSock5: sshClient.SendRequest:", sendOk, " | ", sendResByte, reply, " | ", err)
+			log.Printf("keepAliveSendReq->Error:keepalive failed: %v", err)
 			return
 		}
+		// err = ssh.Unmarshal(sendResByte, &reply)
+		// log.Println("keepAliveSendReq->err: ", err, reply)
 		time.Sleep(timeSecond)
 	}
+}
+
+func PublicKeyAuthFuncTemp(keyPath string, passphrase string) (ssh.AuthMethod, error) {
+	keyBytes, err := os.ReadFile(keyPath)
+	if err != nil {
+		return nil, err
+	}
+	var signer ssh.Signer
+	if passphrase == "" {
+		signer, err = ssh.ParsePrivateKey(keyBytes)
+	} else {
+		signer, err = ssh.ParsePrivateKeyWithPassphrase(keyBytes, []byte(passphrase))
+	}
+	if err != nil {
+		return nil, err
+	}
+	return ssh.PublicKeys(signer), nil
 }

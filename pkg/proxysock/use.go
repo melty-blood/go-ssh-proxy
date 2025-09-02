@@ -1,22 +1,37 @@
 package proxysock
 
 import (
+	"bufio"
+	"context"
+	"errors"
 	"honoka/pkg/confopt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 )
 
+type runSSHServer struct {
+	ctx        context.Context
+	ctxCancel  context.CancelFunc
+	serverName string
+}
+
+const (
+	OrderSSHProxyReloadOne = "OrderSSHProxyReloadOne"
+)
+
 func UseSSHFunc(conf *confopt.Config) {
 	// conf := confopt.ReadConf(confPath)
 
-	onlineChan := make(chan string, 6)
+	onlineChan := make(chan string, 66)
 
 	go RunSockToHttp(conf, onlineChan)
-	RunProxyServer(conf, onlineChan)
+	RunProxySSHServer(conf, onlineChan)
 }
 
 func RunSockToHttp(conf *confopt.Config, onlineChan chan string) {
@@ -25,16 +40,20 @@ func RunSockToHttp(conf *confopt.Config, onlineChan chan string) {
 		return
 	}
 	var (
-		toHttpCount sync.Map
+		toHttpCount         sync.Map
+		sockCtx, sockCancel = context.WithCancel(context.Background())
 	)
 	restartChan := make(chan string, 6)
 	log.Println("start sock to http ", conf.SockToHttp.SockAddr, conf.SockToHttp.ToHttp)
 	if conf.SockProxy.OpenStatus {
-		// go SSHSockProxy(conf, onlineChan)
-		go RunSSHSock5(conf, onlineChan)
+		go RunSSHSock5(sockCtx, conf, onlineChan)
 	} else {
 		onlineChan <- "RunProxyServer"
 	}
+
+	// 获取 linux 信号
+	signalChannel := make(chan os.Signal, 6)
+	signal.Notify(signalChannel, syscall.SIGUSR1, syscall.SIGUSR2)
 
 	for {
 		select {
@@ -51,8 +70,8 @@ func RunSockToHttp(conf *confopt.Config, onlineChan chan string) {
 
 			if online == "RestartSSHSockProxy" {
 				log.Println("SSHSockProxy restart")
-				// go SSHSockProxy(conf, onlineChan)
-				go RunSSHSock5(conf, onlineChan)
+				sockCtx, sockCancel = context.WithCancel(context.Background())
+				go RunSSHSock5(sockCtx, conf, onlineChan)
 			}
 		case restartTask, ok := <-restartChan:
 			if !ok {
@@ -61,19 +80,31 @@ func RunSockToHttp(conf *confopt.Config, onlineChan chan string) {
 				break
 			}
 			log.Println("Error RunSockToHttp SocksTOHttp restart: ", restartTask)
-
 			go StartSockToHttp(conf, &toHttpCount, restartChan)
+
+		case sigNum := <-signalChannel:
+			log.Println("RunSockToHttp->signal number: ", sigNum.String())
+			if sigNum == syscall.SIGUSR2 {
+				log.Println("signal number: syscall.SIGUSR2!! +++++++++++++++++++++++ ", sigNum)
+				sockCancel()
+				go func() {
+					time.Sleep(time.Second * 6)
+					onlineChan <- "RestartSSHSockProxy"
+				}()
+			}
 
 		default:
 			time.Sleep(2 * time.Second)
 		}
 	}
-
 }
 
-func RunProxyServer(conf *confopt.Config, onlineChan chan string) {
+func RunProxySSHServer(conf *confopt.Config, onlineChan chan string) {
 	var (
-		sshCount sync.Map
+		err              error
+		sshCount         sync.Map
+		serverSSHMap     = make(map[string]*runSSHServer, 66)
+		serverSSHMapLock sync.Mutex
 	)
 	restartChan := make(chan *confopt.SSHConfig, 16)
 
@@ -82,19 +113,28 @@ func RunProxyServer(conf *confopt.Config, onlineChan chan string) {
 			continue
 		}
 		go func(sshConf *confopt.SSHConfig) {
+			serverSSHMapLock.Lock()
+			// ctx, cancel不能使用 var 提前声明, 否则会造成 ctx, cancel混乱,
+			// 导致关闭其他的 SSHServer 代理, 无法达到关闭预期的 SSHServer
+			ctx, cancel := context.WithCancel(context.Background())
+			serverSSHMap[sshConf.ServerName] = &runSSHServer{
+				ctx:        ctx,
+				ctxCancel:  cancel,
+				serverName: sshConf.ServerName,
+			}
+			serverSSHMapLock.Unlock()
 
-			log.Println("SSH ServerName go func start: ", sshConf.ServerName)
-			SSHProxyStart(sshConf, conf.ServerConf.Jump, restartChan, &sshCount)
+			log.Println("RunProxySSHServer SSH ServerName go func start: ", sshConf.ServerName)
+			SSHProxyStart(ctx, sshConf, conf.ServerConf.Jump, restartChan, &sshCount)
 		}(val)
 	}
 	time.Sleep(2 * time.Second)
-	log.Println("RunProxyServer channel onlineChan len: ", len(onlineChan))
+	log.Println("RunProxySSHServer RunProxyServer channel onlineChan len: ", len(onlineChan))
 
-	// 自己捕捉 linux 信号
-	signalChanel := make(chan os.Signal, 6)
-	signal.Notify(signalChanel, syscall.SIGINT, syscall.SIGTERM)
-	// if runtime.GOOS == "linux"
-	// signal.Notify(signalChanel, syscall.SIGINT, syscall.SIGUSR2, syscall.SIGTERM)
+	// 获取 linux 信号
+	signalChannel := make(chan os.Signal, 6)
+	signal.Notify(signalChannel, syscall.SIGINT, syscall.SIGTERM, syscall.SIGUSR1)
+	// if runtime.GOOS == "linux" {}
 
 	var sigNum os.Signal
 	for {
@@ -103,27 +143,39 @@ func RunProxyServer(conf *confopt.Config, onlineChan chan string) {
 			if reConf.IsError {
 				if sshNum, ok := sshCount.Load(reConf.ServerName); ok {
 					num, _ := sshNum.(int)
-					log.Println("SSH restart count : ", reConf.ServerName, num)
+					log.Println("RunProxySSHServer SSH restart count : ", reConf.ServerName, num)
 					if num > 6 {
-						log.Println("Error: This is Server connect fail many ", reConf.ServerName)
+						log.Println("RunProxySSHServer Error: This is Server connect fail many ", reConf.ServerName)
 						os.Exit(888)
 					}
 				}
 			}
 			if chanOk {
-				go SSHProxyStart(reConf, conf.ServerConf.Jump, restartChan, &sshCount)
+				if runSSHServer, ok := serverSSHMap[reConf.ServerName]; ok {
+					ctx, cancel := context.WithCancel(context.Background())
+					runSSHServer.ctx = ctx
+					runSSHServer.ctxCancel = cancel
+					go SSHProxyStart(ctx, reConf, conf.ServerConf.Jump, restartChan, &sshCount)
+				}
 			} else {
-				log.Println("Error channel <-restartChan read fail: ", reConf.ServerName)
+				log.Println("RunProxySSHServer Error channel <-restartChan read fail: ", reConf.ServerName)
 			}
-		case sigNum = <-signalChanel:
+		case sigNum = <-signalChannel:
 			log.Println("signal number: ", sigNum)
 			if sigNum == syscall.SIGTERM || sigNum == syscall.SIGINT {
 				// kill -INT OR kill -TERM
-				log.Println("signal number: server stop success!! +++++++++++++++++++++++ ", sigNum)
+				log.Println("RunProxySSHServer signal number: server stop success!!", sigNum)
 				os.Exit(222)
-			} else {
-				log.Println("signal number: not have signal")
 			}
+			if sigNum == syscall.SIGUSR1 {
+				log.Println("RunProxySSHServer signal number: syscall.SIGUSR1!!", sigNum)
+
+				err = reloadSSHProxy(conf.ServerConf.SignalOrderFilePath, serverSSHMap)
+				if err != nil {
+					log.Println("RunProxySSHServer->readOrderBySignal Error: ", err)
+				}
+			}
+
 		default:
 			time.Sleep(6 * time.Second)
 		}
@@ -131,6 +183,7 @@ func RunProxyServer(conf *confopt.Config, onlineChan chan string) {
 }
 
 func SSHProxyStart(
+	ctx context.Context,
 	sshConf *confopt.SSHConfig,
 	jump *confopt.CommonJump,
 	restartChan chan *confopt.SSHConfig,
@@ -146,12 +199,12 @@ func SSHProxyStart(
 	// 幂等 每次只能有一组在运行
 	keyName := "key_" + sshConf.ServerName
 	if hasKey, ok := sshCount.Load(keyName); ok {
-		log.Println("go func SSHProxyStart has: ", hasKey, sshConf.ServerName, sshConf.Local)
+		log.Println("SSHProxyStart has:", hasKey, sshConf.ServerName, sshConf.Local)
 		return nil
 	}
 	sshCount.Store(keyName, 1)
 	defer func() {
-		log.Println("go func SSHProxyStart exit: ", keyName, sshConf.ServerName, sshConf.Local)
+		log.Println("SSHProxyStart exit:", keyName, sshConf.ServerName, sshConf.Local)
 		sshCount.Delete(keyName)
 	}()
 
@@ -163,21 +216,22 @@ func SSHProxyStart(
 		sshConf.JumpPassword = jump.JumpPassword
 		sshConf.JumpPriKey = jump.JumpPriKey
 	}
-	log.Println("go func SSHProxyStart param ready: ", sshConf.ServerName, sshConf.Local, " - ", sshConf.JumpHost)
+	log.Println("SSHProxyStart param ready:", sshConf.ServerName, sshConf.Local, " - ", sshConf.JumpHost)
 
 	// TODO 可以修改为协程使用channel来观察是否存在错误返回, 如果没有返回错误但是返回nil则代表本次连接需要被终止并重新连接
 	var err error
 	if sshConf.NeedJump {
-		err = sshToServerByJump(sshConf.ServerName, sshConf)
+		err = sshToServerByJump(ctx, sshConf.ServerName, sshConf)
 	} else {
-		err = sshToServer(sshConf.ServerName, sshConf)
+		err = sshToServer(ctx, sshConf.ServerName, sshConf)
 	}
-	log.Println("go func SSHProxyStart running: ", sshConf.ServerName, err)
+	log.Println("SSHProxyStart run over:", sshConf.ServerName, err)
 
 	if err != nil {
-		log.Println("Error SSHProxyStart SSH Fail: ", err, sshConf.ServerName)
+		log.Println("SSHProxyStart SSH Fail:", err, sshConf.ServerName)
 		sshConf.IsError = true
 		restartChan <- sshConf
+		return err
 	}
 	restartChan <- sshConf
 	return nil
@@ -198,4 +252,45 @@ func StartSockToHttp(conf *confopt.Config, toHttpCount *sync.Map, restartChan ch
 		restartChan <- conf.SockToHttp.ServerName
 	}
 	return err
+}
+
+func readOrderBySignal(filePath string) (map[string]string, error) {
+	file, err := os.OpenFile(filePath, os.O_RDONLY, 0)
+	if err != nil {
+		return nil, err
+	}
+	proxySSHMap := make(map[string]string, 166)
+	scan := bufio.NewReaderSize(file, 8388608)
+	for {
+		line, _, err := scan.ReadLine()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, errors.New("scnner readLine error: " + err.Error())
+		}
+		proxyConfOne := strings.Split(string(line), ":")
+		if len(proxyConfOne) <= 1 {
+			continue
+		}
+		proxySSHMap[proxyConfOne[0]] = proxyConfOne[1]
+	}
+	return proxySSHMap, nil
+}
+
+func reloadSSHProxy(orderPath string, serverSSHMap map[string]*runSSHServer) error {
+	orderSSHMap, err := readOrderBySignal(orderPath)
+	if err != nil {
+		return err
+	}
+	if orderSSHOne, ok := orderSSHMap[OrderSSHProxyReloadOne]; ok {
+		orderSSHOneArr := strings.Split(orderSSHOne, ",")
+		for _, val := range orderSSHOneArr {
+			if serverSSHOne, ok := serverSSHMap[val]; ok {
+				serverSSHOne.ctxCancel()
+				log.Println("reloadSSHProxy ctxCancel by:", serverSSHOne.serverName)
+			}
+		}
+	}
+	return nil
 }

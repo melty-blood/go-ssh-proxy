@@ -14,7 +14,7 @@ Publish:
       "RepoUrl": "GIT_PATH",
       "ClonePath": "/dev/shm/code_dir/lovelive_code",
       "TargzPath": "/dev/shm/code_dir/code.tar.gz",
-      "TargzIsNeedTopDir": false,
+      "TargzIsNeedTopDir": false, # Whether to perform compression requires an upper-level folder
       "CheckBranch": "CHECKOUT_BRANCH", # local branch
       "RemoteName": "origin",
       "RemoteBranch": "REMOTE_BRANCH",
@@ -43,6 +43,7 @@ Publish:
   ]
 
 # 此节点配置用于代理内网访问, 类似于翻墙到内网, 可以不用在内网安装任何软件
+# kill -USR2 PID 可以让程序不中断前的情况下重新连接代理服务
 SockProxy:
   ServerName: "paydayloan-proxy"
   OpenStatus: true
@@ -63,7 +64,10 @@ SockToHttp:
   SockAddr: 127.0.0.1:22122
   ToHttp: 127.0.0.1:7890
 
-ServerConf: 
+ServerConf:
+  # 在 /dev/shm/order 文件中写入 OrderSSHProxyReloadOne:lovelive-honoka,lovelive-kotori,
+  # 后执行 kill -USR1 PID 可以在不中断程序的情况下让代理服务进行重新连接
+  SignalOrderFilePath: "/dev/shm/order" # 使用 kill 发送 USR1,USR2 信号时所读取的配置
   # 跳板机 相当于ssh -J 选项
   Jump: {
     JumpHost: "JUMP_IP:PORT",

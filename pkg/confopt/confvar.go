@@ -10,8 +10,9 @@ type (
 		}
 
 		ServerConf struct {
-			SSHConf []*SSHConfig
-			Jump    *CommonJump
+			SignalOrderFilePath string
+			SSHConf             []*SSHConfig
+			Jump                *CommonJump
 		}
 
 		SockProxy struct {

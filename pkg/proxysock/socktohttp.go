@@ -1,4 +1,3 @@
-// Deprecated: As of next version 1.2.2
 package proxysock
 
 import (

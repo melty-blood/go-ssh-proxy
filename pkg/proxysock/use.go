@@ -43,7 +43,8 @@ func RunSockToHttp(conf *confopt.Config, onlineChan chan string) {
 		toHttpCount         sync.Map
 		sockCtx, sockCancel = context.WithCancel(context.Background())
 	)
-	restartChan := make(chan string, 6)
+	defer sockCancel()
+	restartChan := make(chan string, 26)
 	log.Println("start sock to http ", conf.SockToHttp.SockAddr, conf.SockToHttp.ToHttp)
 	if conf.SockProxy.OpenStatus {
 		go RunSSHSock5(sockCtx, conf, onlineChan)
@@ -53,13 +54,14 @@ func RunSockToHttp(conf *confopt.Config, onlineChan chan string) {
 
 	// 获取 linux 信号
 	signalChannel := make(chan os.Signal, 6)
-	signal.Notify(signalChannel, syscall.SIGUSR1, syscall.SIGUSR2)
+	signal.Notify(signalChannel, sigUSR1, sigUSR2)
 
 	for {
 		select {
 		case online, ok := <-onlineChan:
 			if !ok {
 				log.Println("Error RunSockToHttp onlineChan read fail: ", conf.SockToHttp.ToHttp)
+				return
 			}
 			log.Println("RunSockToHttp onlineChan value: ", online)
 
@@ -70,7 +72,8 @@ func RunSockToHttp(conf *confopt.Config, onlineChan chan string) {
 
 			if online == "RestartSSHSockProxy" {
 				log.Println("SSHSockProxy restart")
-				sockCtx, sockCancel = context.WithCancel(context.Background())
+				sockCtx, sockCancel := context.WithCancel(context.Background())
+				defer sockCancel()
 				go RunSSHSock5(sockCtx, conf, onlineChan)
 			}
 		case restartTask, ok := <-restartChan:
@@ -83,8 +86,8 @@ func RunSockToHttp(conf *confopt.Config, onlineChan chan string) {
 			go StartSockToHttp(conf, &toHttpCount, restartChan)
 
 		case sigNum := <-signalChannel:
-			log.Println("RunSockToHttp->signal number: ", sigNum.String())
-			if sigNum == syscall.SIGUSR2 {
+			log.Println("RunSockToHttp->signal number: ", sigNum)
+			if sigNum == sigUSR2 {
 				log.Println("signal number: syscall.SIGUSR2!! +++++++++++++++++++++++ ", sigNum)
 				sockCancel()
 				go func() {
@@ -133,8 +136,7 @@ func RunProxySSHServer(conf *confopt.Config, onlineChan chan string) {
 
 	// 获取 linux 信号
 	signalChannel := make(chan os.Signal, 6)
-	signal.Notify(signalChannel, syscall.SIGINT, syscall.SIGTERM, syscall.SIGUSR1)
-	// if runtime.GOOS == "linux" {}
+	signal.Notify(signalChannel, syscall.SIGINT, syscall.SIGTERM, sigUSR1)
 
 	var sigNum os.Signal
 	for {
@@ -152,6 +154,15 @@ func RunProxySSHServer(conf *confopt.Config, onlineChan chan string) {
 			}
 			if chanOk {
 				if runSSHServer, ok := serverSSHMap[reConf.ServerName]; ok {
+					loadVal, loadOk := sshCount.Load("key_" + reConf.ServerName)
+					log.Println("RunProxySSHServer <-restartChan Load: ", loadVal, loadOk)
+					// 原本的cancel需要取消, 然后在赋值新的
+					runSSHServer.ctxCancel()
+					// 等待1秒, 等待 SSHProxyStart 清理工作
+					time.Sleep(1 * time.Second)
+					loadVal, loadOk = sshCount.Load("key_" + reConf.ServerName)
+					log.Println("RunProxySSHServer <-restartChan Load after 2: ", loadVal, loadOk)
+
 					ctx, cancel := context.WithCancel(context.Background())
 					runSSHServer.ctx = ctx
 					runSSHServer.ctxCancel = cancel
@@ -161,13 +172,13 @@ func RunProxySSHServer(conf *confopt.Config, onlineChan chan string) {
 				log.Println("RunProxySSHServer Error channel <-restartChan read fail: ", reConf.ServerName)
 			}
 		case sigNum = <-signalChannel:
-			log.Println("signal number: ", sigNum)
+			log.Println("RunProxySSHServer->signal number: ", sigNum)
 			if sigNum == syscall.SIGTERM || sigNum == syscall.SIGINT {
 				// kill -INT OR kill -TERM
 				log.Println("RunProxySSHServer signal number: server stop success!!", sigNum)
 				os.Exit(222)
 			}
-			if sigNum == syscall.SIGUSR1 {
+			if sigNum == sigUSR1 {
 				log.Println("RunProxySSHServer signal number: syscall.SIGUSR1!!", sigNum)
 
 				err = reloadSSHProxy(conf.ServerConf.SignalOrderFilePath, serverSSHMap)
@@ -206,6 +217,7 @@ func SSHProxyStart(
 	defer func() {
 		log.Println("SSHProxyStart exit:", keyName, sshConf.ServerName, sshConf.Local)
 		sshCount.Delete(keyName)
+		restartChan <- sshConf
 	}()
 
 	sshConf.IsError = false
@@ -230,14 +242,23 @@ func SSHProxyStart(
 	if err != nil {
 		log.Println("SSHProxyStart SSH Fail:", err, sshConf.ServerName)
 		sshConf.IsError = true
-		restartChan <- sshConf
 		return err
 	}
-	restartChan <- sshConf
 	return nil
 }
 
 func StartSockToHttp(conf *confopt.Config, toHttpCount *sync.Map, restartChan chan string) error {
+	keyName := "key_" + conf.SockToHttp.ServerName
+	if hasKey, ok := toHttpCount.Load(keyName); ok {
+		log.Println("StartSockToHttp has:", hasKey, keyName)
+		return nil
+	}
+	toHttpCount.Store(keyName, 1)
+	defer func() {
+		log.Println("StartSockToHttp exit:", keyName)
+		toHttpCount.Delete(keyName)
+	}()
+
 	if toHttpCountNum, ok := toHttpCount.Load(conf.SockToHttp.ServerName); !ok {
 		toHttpCount.Store(conf.SockToHttp.ServerName, 0)
 	} else {
@@ -250,8 +271,9 @@ func StartSockToHttp(conf *confopt.Config, toHttpCount *sync.Map, restartChan ch
 	if err != nil {
 		log.Println("Error StartSockToHttp SSH Fail: ", err, conf.SockToHttp.ServerName)
 		restartChan <- conf.SockToHttp.ServerName
+		return err
 	}
-	return err
+	return nil
 }
 
 func readOrderBySignal(filePath string) (map[string]string, error) {

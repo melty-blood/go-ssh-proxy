@@ -217,7 +217,7 @@ func RunSSHSock5(ctx context.Context, conf *confopt.Config, onlineChan chan stri
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			log.Printf("RunSSHSock5: accept error: %v", err)
+			log.Printf("RunSSHSock5->accept error: %v", err)
 			break
 		}
 		go handleSocksConn(conn, sshClient)

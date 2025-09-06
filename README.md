@@ -23,8 +23,20 @@ CGO_ENABLED=0 GOARCH=amd64 go build -o ./honoka_proxy -a -ldflags '-extldflags "
 # windows
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o ./honoka_proxy.exe -a -ldflags '-extldflags "-static"' honoka.go
 
+# pprof
+go tool pprof -http 127.0.0.1:6062 http://127.0.0.1:6060/debug/pprof/goroutine
+
 ```
 
+------
+
+```shell
+
+git tag -l
+git tag -a v1.1.1 -m "mess"
+git push --tags
+
+```
 
 ### LoveLive 镇楼
 ![https://github.com/melty-blood/go-ssh-proxy/blob/master/lovelive.jpg](./lovelive.jpg)

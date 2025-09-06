@@ -24,7 +24,7 @@ type optSSHToServer struct {
 
 // ssh -NL 20022:6.106.4.5:22 -J TypeMoon ADMINISTRATOR@10.42.211.143 -p 8606
 
-func PublicKeyAuth(priFile string) (ssh.AuthMethod, error) {
+func PublicKeyAuth(priFile string, passphrase string) (ssh.AuthMethod, error) {
 	priKey, err := os.ReadFile(priFile)
 	if err != nil {
 		log.Fatalln("read prikey fail: ", err)
@@ -32,6 +32,9 @@ func PublicKeyAuth(priFile string) (ssh.AuthMethod, error) {
 	}
 
 	signer, err := ssh.ParsePrivateKey(priKey)
+	if passphrase != "" {
+		signer, err = ssh.ParsePrivateKeyWithPassphrase(priKey, []byte(passphrase))
+	}
 	if err != nil {
 		log.Fatalln("parse prikey fail: ", err)
 		return nil, err
@@ -41,9 +44,6 @@ func PublicKeyAuth(priFile string) (ssh.AuthMethod, error) {
 
 func sshToServerByJump(baseCtx context.Context, serverName string, sshconf *confopt.SSHConfig) error {
 	var (
-		// clientNum     int
-		// errStr        string
-		// actionChanStr string = ""
 		err error
 	)
 	// 目标服务器配置
@@ -57,7 +57,7 @@ func sshToServerByJump(baseCtx context.Context, serverName string, sshconf *conf
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 	if len(sshconf.ServerPriKey) > 0 {
-		priKey, _ := PublicKeyAuth(sshconf.ServerPriKey)
+		priKey, _ := PublicKeyAuth(sshconf.ServerPriKey, sshconf.ServerPriPass)
 		targetConfig.Auth = []ssh.AuthMethod{
 			priKey,
 		}
@@ -80,7 +80,7 @@ func sshToServerByJump(baseCtx context.Context, serverName string, sshconf *conf
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 	if len(sshconf.JumpPriKey) > 0 {
-		priKey, _ := PublicKeyAuth(sshconf.JumpPriKey)
+		priKey, _ := PublicKeyAuth(sshconf.JumpPriKey, sshconf.JumpPriPass)
 		jumpConfig.Auth = []ssh.AuthMethod{
 			priKey,
 		}
@@ -375,9 +375,6 @@ func connClose(ctx context.Context, serverName string, local, remote net.Conn) {
 
 func sshToServer(baseCtx context.Context, serverName string, sshconf *confopt.SSHConfig) error {
 	var (
-		// clientNum     int
-		// errStr        string
-		// actionChanStr string = ""
 		err error
 	)
 	// 目标服务器配置
@@ -391,7 +388,7 @@ func sshToServer(baseCtx context.Context, serverName string, sshconf *confopt.SS
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // 根据需求设置更安全的回调
 	}
 	if len(sshconf.ServerPriKey) > 0 {
-		priKey, _ := PublicKeyAuth(sshconf.ServerPriKey)
+		priKey, _ := PublicKeyAuth(sshconf.ServerPriKey, sshconf.ServerPriPass)
 		targetConfig.Auth = []ssh.AuthMethod{
 			priKey,
 		}

@@ -10,7 +10,6 @@ import (
 	"io"
 	"log"
 	"net"
-	"os"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -154,10 +153,9 @@ func handleSocksConn(local net.Conn, sshClient *ssh.Client) {
 func RunSSHSock5(ctx context.Context, conf *confopt.Config, onlineChan chan string) error {
 	proxyOpt := conf.SockProxy
 	var (
-		user    = proxyOpt.ServerUser
-		server  = proxyOpt.ServerHost
-		keyFile = proxyOpt.ServerPriKey
-		// keyPass   = flag.String("keypass", "", "private key passphrase (optional)")
+		user      = proxyOpt.ServerUser
+		server    = proxyOpt.ServerHost
+		keyFile   = proxyOpt.ServerPriKey
 		password  = proxyOpt.ServerPassword
 		listen    = proxyOpt.Local
 		insecure  = false
@@ -177,7 +175,7 @@ func RunSSHSock5(ctx context.Context, conf *confopt.Config, onlineChan chan stri
 		Timeout:         20 * time.Second,
 	}
 	if len(keyFile) > 0 {
-		priKey, err := PublicKeyAuth(keyFile)
+		priKey, err := PublicKeyAuth(keyFile, proxyOpt.ServerPriPass)
 		if err != nil {
 			return errors.New("RunSSHSock5: load key failed:" + err.Error())
 		}
@@ -271,21 +269,4 @@ func keepAliveSendReq(sshClient *ssh.Client, keepAlive int) {
 		// log.Println("keepAliveSendReq->err: ", err, reply)
 		time.Sleep(timeSecond)
 	}
-}
-
-func PublicKeyAuthFuncTemp(keyPath string, passphrase string) (ssh.AuthMethod, error) {
-	keyBytes, err := os.ReadFile(keyPath)
-	if err != nil {
-		return nil, err
-	}
-	var signer ssh.Signer
-	if passphrase == "" {
-		signer, err = ssh.ParsePrivateKey(keyBytes)
-	} else {
-		signer, err = ssh.ParsePrivateKeyWithPassphrase(keyBytes, []byte(passphrase))
-	}
-	if err != nil {
-		return nil, err
-	}
-	return ssh.PublicKeys(signer), nil
 }

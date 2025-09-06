@@ -24,10 +24,12 @@ type (
 			ServerUser     string
 			ServerPassword string
 			ServerPriKey   string
+			ServerPriPass  string `json:",optional"`
 			JumpHost       string `json:",optional"`
 			JumpUser       string `json:",optional"`
 			JumpPassword   string `json:",optional"`
 			JumpPriKey     string `json:",optional"`
+			JumpPriPass    string `json:",optional"`
 			Local          string
 			Proxy          string
 			SSHCommand     string `json:",optional"`
@@ -50,10 +52,12 @@ type (
 		ServerUser     string
 		ServerPassword string
 		ServerPriKey   string
+		ServerPriPass  string `json:",optional"`
 		JumpHost       string `json:",optional"`
 		JumpUser       string `json:",optional"`
 		JumpPassword   string `json:",optional"`
 		JumpPriKey     string `json:",optional"`
+		JumpPriPass    string `json:",optional"`
 		Local          string
 		Proxy          string
 		OpenStatus     bool
@@ -66,6 +70,7 @@ type (
 		JumpUser     string `json:",optional"`
 		JumpPassword string `json:",optional"`
 		JumpPriKey   string `json:",optional"`
+		JumpPriPass  string `json:",optional"`
 	}
 
 	PublishGitOpt struct {

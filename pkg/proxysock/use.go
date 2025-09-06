@@ -7,6 +7,8 @@ import (
 	"honoka/pkg/confopt"
 	"io"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"strings"
@@ -28,6 +30,10 @@ const (
 func UseSSHFunc(conf *confopt.Config) {
 	// conf := confopt.ReadConf(confPath)
 
+	go func() {
+		http.ListenAndServe("127.0.0.1:6060", nil)
+	}()
+
 	onlineChan := make(chan string, 66)
 
 	go RunSockToHttp(conf, onlineChan)
@@ -42,8 +48,16 @@ func RunSockToHttp(conf *confopt.Config, onlineChan chan string) {
 	var (
 		toHttpCount         sync.Map
 		sockCtx, sockCancel = context.WithCancel(context.Background())
+		sockMap             = make(map[string]*runSSHServer)
 	)
 	defer sockCancel()
+
+	sockMap[conf.SockToHttp.ServerName] = &runSSHServer{
+		ctx:        sockCtx,
+		ctxCancel:  sockCancel,
+		serverName: conf.SockToHttp.ServerName,
+	}
+
 	restartChan := make(chan string, 26)
 	log.Println("start sock to http ", conf.SockToHttp.SockAddr, conf.SockToHttp.ToHttp)
 	if conf.SockProxy.OpenStatus {
@@ -73,7 +87,9 @@ func RunSockToHttp(conf *confopt.Config, onlineChan chan string) {
 			if online == "RestartSSHSockProxy" {
 				log.Println("SSHSockProxy restart")
 				sockCtx, sockCancel := context.WithCancel(context.Background())
-				defer sockCancel()
+				sockMap[conf.SockToHttp.ServerName].ctx = sockCtx
+				sockMap[conf.SockToHttp.ServerName].ctxCancel = sockCancel
+
 				go RunSSHSock5(sockCtx, conf, onlineChan)
 			}
 		case restartTask, ok := <-restartChan:
@@ -89,7 +105,8 @@ func RunSockToHttp(conf *confopt.Config, onlineChan chan string) {
 			log.Println("RunSockToHttp->signal number: ", sigNum)
 			if sigNum == sigUSR2 {
 				log.Println("signal number: syscall.SIGUSR2!! +++++++++++++++++++++++ ", sigNum)
-				sockCancel()
+				sockMap[conf.SockToHttp.ServerName].ctxCancel()
+
 				go func() {
 					time.Sleep(time.Second * 6)
 					onlineChan <- "RestartSSHSockProxy"
@@ -155,13 +172,13 @@ func RunProxySSHServer(conf *confopt.Config, onlineChan chan string) {
 			if chanOk {
 				if runSSHServer, ok := serverSSHMap[reConf.ServerName]; ok {
 					loadVal, loadOk := sshCount.Load("key_" + reConf.ServerName)
-					log.Println("RunProxySSHServer <-restartChan Load: ", loadVal, loadOk)
+					log.Println("RunProxySSHServer <-restartChan Load: ", reConf.ServerName, loadVal, loadOk)
 					// 原本的cancel需要取消, 然后在赋值新的
 					runSSHServer.ctxCancel()
 					// 等待1秒, 等待 SSHProxyStart 清理工作
 					time.Sleep(1 * time.Second)
 					loadVal, loadOk = sshCount.Load("key_" + reConf.ServerName)
-					log.Println("RunProxySSHServer <-restartChan Load after 2: ", loadVal, loadOk)
+					log.Println("RunProxySSHServer <-restartChan Load after 2: ", reConf.ServerName, loadVal, loadOk)
 
 					ctx, cancel := context.WithCancel(context.Background())
 					runSSHServer.ctx = ctx
@@ -227,6 +244,7 @@ func SSHProxyStart(
 		sshConf.JumpUser = jump.JumpUser
 		sshConf.JumpPassword = jump.JumpPassword
 		sshConf.JumpPriKey = jump.JumpPriKey
+		sshConf.JumpPriPass = jump.JumpPriPass
 	}
 	log.Println("SSHProxyStart param ready:", sshConf.ServerName, sshConf.Local, " - ", sshConf.JumpHost)
 

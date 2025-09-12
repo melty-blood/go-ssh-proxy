@@ -24,36 +24,37 @@ func readExact(conn net.Conn, n int) ([]byte, error) {
 
 func handleSocksConn(local net.Conn, sshClient *ssh.Client) {
 	defer local.Close()
+	logp := NewPrintLog("handleSocksConn", "")
 
 	// SOCKS5 handshake
 	hdr, err := readExact(local, 2)
 	if err != nil {
-		log.Printf("handleSocksConn-handshake read error: %v", err)
+		logp.Print("->handshake read error:", err)
 		return
 	}
 	if hdr[0] != 0x05 {
-		log.Printf("handleSocksConn-unsupported socks version: %v", hdr[0])
+		logp.Print("->unsupported socks version:", hdr[0])
 		return
 	}
 	nmethods := int(hdr[1])
 	if _, err = readExact(local, nmethods); err != nil {
-		log.Printf("handleSocksConn-read methods error: %v", err)
+		logp.Print("->read methods error:", err)
 		return
 	}
 	// reply: no auth (0x00)
 	if _, err = local.Write([]byte{0x05, 0x00}); err != nil {
-		log.Printf("handleSocksConn-write handshake reply error: %v", err)
+		logp.Print("->write handshake reply error:", err)
 		return
 	}
 
 	// read request
-	reqHead, err := readExact(local, 4)
+	reqHead, err := readExact(local, 8)
 	if err != nil {
-		log.Printf("handleSocksConn-read request header error: %v", err)
+		logp.Print("->read request header error:", err)
 		return
 	}
 	if reqHead[0] != 0x05 {
-		log.Printf("handleSocksConn-unsupported request version: %v", reqHead[0])
+		logp.Print("->unsupported request version:", reqHead[0])
 		return
 	}
 	cmd := reqHead[1]
@@ -64,7 +65,7 @@ func handleSocksConn(local net.Conn, sshClient *ssh.Client) {
 		// only CONNECT supported
 		// reply: command not supported (0x07)
 		local.Write([]byte{0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
-		log.Printf("handleSocksConn-unsupported socks command: %v", cmd)
+		logp.Print("->unsupported socks command:", cmd)
 		return
 	}
 
@@ -72,9 +73,9 @@ func handleSocksConn(local net.Conn, sshClient *ssh.Client) {
 	switch atyp {
 	case 0x01:
 		// IPv4
-		b, err := readExact(local, 4)
+		b, err := readExact(local, 8)
 		if err != nil {
-			log.Printf("handleSocksConn-read ipv4 error: %v", err)
+			logp.Print("->read ipv4 error:", err)
 			return
 		}
 		host = net.IP(b).String()
@@ -82,13 +83,13 @@ func handleSocksConn(local net.Conn, sshClient *ssh.Client) {
 		// domain
 		lenb, err := readExact(local, 1)
 		if err != nil {
-			log.Printf("handleSocksConn-read domain length error: %v", err)
+			logp.Print("->read domain length error:", err)
 			return
 		}
 		dlen := int(lenb[0])
 		db, err := readExact(local, dlen)
 		if err != nil {
-			log.Printf("handleSocksConn-read domain error: %v", err)
+			logp.Print("->read domain error:", err)
 			return
 		}
 		host = string(db)
@@ -96,31 +97,31 @@ func handleSocksConn(local net.Conn, sshClient *ssh.Client) {
 		// IPv6
 		b, err := readExact(local, 16)
 		if err != nil {
-			log.Printf("handleSocksConn-read ipv6 error: %v", err)
+			logp.Print("->read ipv6 error:", err)
 			return
 		}
 		host = net.IP(b).String()
 	default:
 		local.Write([]byte{0x05, 0x08, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
-		log.Printf("handleSocksConn-unknown atyp: %v", atyp)
+		logp.Print("->unknown atyp:", atyp)
 		return
 	}
 	// port
 	pb, err := readExact(local, 2)
 	if err != nil {
-		log.Printf("handleSocksConn-read port error: %v", err)
+		logp.Print("->read port error:", err)
 		return
 	}
 	port := binary.BigEndian.Uint16(pb)
 	dest := fmt.Sprintf("%s:%d", host, port)
-	log.Printf("handleSocksConn-SOCKS CONNECT: %s", dest)
+	logp.Print("->SOCKS CONNECT:", dest)
 
 	// Use sshClient.Dial to create connection from remote side to dest
 	remote, err := sshClient.Dial("tcp", dest)
 	if err != nil {
 		// reply: general failure
 		local.Write([]byte{0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
-		log.Printf("handleSocksConn-ssh dial to %s failed: %v", dest, err)
+		logp.PrintF("->ssh dial to %s failed: %v", dest, err)
 		return
 	}
 	// reply: success (bind addr 0.0.0.0:0)
@@ -133,40 +134,42 @@ func handleSocksConn(local net.Conn, sshClient *ssh.Client) {
 		remote.Close()
 		done <- struct{}{}
 		if err != nil {
-			log.Println("handleSocksConn-Copy remote->local err:", err)
+			logp.Print("->Copy remote->local err:", err)
 		}
 	}()
 	go func() {
 		_, err = io.Copy(local, remote)
 		local.Close()
 		if err != nil {
-			log.Println("handleSocksConn-Copy local->remote err:", err)
+			logp.Print("->Copy local->remote err:", err)
 		}
 		done <- struct{}{}
 	}()
 	<-done
 	<-done
-	log.Printf("handleSocksConn-connection %s closed", dest)
+	logp.PrintF("->connection %s closed", dest)
 }
 
 // TIP: ssh -ND 22122
 func RunSSHSock5(ctx context.Context, conf *confopt.Config, onlineChan chan string) error {
 	proxyOpt := conf.SockProxy
 	var (
-		user      = proxyOpt.ServerUser
-		server    = proxyOpt.ServerHost
-		keyFile   = proxyOpt.ServerPriKey
-		password  = proxyOpt.ServerPassword
-		listen    = proxyOpt.Local
-		insecure  = false
-		keepAlive = 6
+		user        = proxyOpt.ServerUser
+		server      = proxyOpt.ServerHost
+		keyFile     = proxyOpt.ServerPriKey
+		password    = proxyOpt.ServerPassword
+		listenLocal = proxyOpt.Local
+		insecure    = false
+		keepAlive   = 6
+
+		logp = NewPrintLog("RunSSHSock5", "")
 	)
 
 	hostKeyCallback := ssh.InsecureIgnoreHostKey()
 	if !insecure {
 		hostKeyCallback = ssh.InsecureIgnoreHostKey()
 	}
-	cfg := &ssh.ClientConfig{
+	sshConf := &ssh.ClientConfig{
 		User: user,
 		Auth: []ssh.AuthMethod{
 			ssh.Password(password),
@@ -179,13 +182,13 @@ func RunSSHSock5(ctx context.Context, conf *confopt.Config, onlineChan chan stri
 		if err != nil {
 			return errors.New("RunSSHSock5: load key failed:" + err.Error())
 		}
-		cfg.Auth = []ssh.AuthMethod{
+		sshConf.Auth = []ssh.AuthMethod{
 			priKey,
 		}
 	}
 
-	log.Printf("RunSSHSock5: dialing ssh %s", server)
-	sshClient, err := ssh.Dial("tcp", server, cfg)
+	logp.Print("-> dialing ssh start:", server)
+	sshClient, err := ssh.Dial("tcp", server, sshConf)
 	defer func() {
 		if err != nil {
 			onlineChan <- "RestartSSHSockProxy"
@@ -195,18 +198,18 @@ func RunSSHSock5(ctx context.Context, conf *confopt.Config, onlineChan chan stri
 		return errors.New("RunSSHSock5: ssh dial failed:" + err.Error())
 	}
 	defer sshClient.Close()
-	log.Printf("RunSSHSock5: ssh connection established to %s", server)
+	logp.Print("ssh connection success to", server)
 
 	// optional keepalive
 	if keepAlive > 0 {
 		go keepAliveSendReq(sshClient, keepAlive)
 	}
 
-	ln, err := net.Listen("tcp", listen)
+	ln, err := net.Listen("tcp", listenLocal)
 	if err != nil {
-		return errors.New("RunSSHSock5: listen: " + listen + " | err: " + err.Error())
+		return errors.New("RunSSHSock5: listen: " + listenLocal + " | err: " + err.Error())
 	}
-	log.Printf("RunSSHSock5: SOCKS5 listening on %s (forward via %s) \n", listen, server)
+	logp.PrintF("SOCKS5 listening on %s (forward via %s) \n", listenLocal, server)
 	go func() {
 		time.Sleep(time.Second)
 		onlineChan <- "RunProxyServer"
@@ -215,7 +218,7 @@ func RunSSHSock5(ctx context.Context, conf *confopt.Config, onlineChan chan stri
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			log.Printf("RunSSHSock5->accept error: %v", err)
+			logp.Print("->accept connect error:", err)
 			break
 		}
 		go handleSocksConn(conn, sshClient)
@@ -243,6 +246,7 @@ func keepAliveSendReq(sshClient *ssh.Client, keepAlive int) {
 		sendOk      bool
 		sendResByte []byte
 		err         error
+		logp        = NewPrintLog("keepAliveSendReq", "")
 	)
 	req := struct {
 		Addr    string
@@ -261,12 +265,12 @@ func keepAliveSendReq(sshClient *ssh.Client, keepAlive int) {
 	for {
 		sendOk, sendResByte, err = sshClient.SendRequest("tcpip-forward", true, ssh.Marshal(&req))
 		if err != nil {
-			log.Println("keepAliveSendReq->Error:RunSSHSock5: sshClient.SendRequest:", sendOk, " | ", sendResByte, reply, " | ", err)
-			log.Printf("keepAliveSendReq->Error:keepalive failed: %v", err)
+			logp.Print("->Error:RunSSHSock5: sshClient.SendRequest:", sendOk, " | ", sendResByte, reply, " | ", err)
+			logp.Print("->Error:keepalive failed:", err)
 			return
 		}
 		// err = ssh.Unmarshal(sendResByte, &reply)
-		// log.Println("keepAliveSendReq->err: ", err, reply)
+		// logp.Print("->sendResByte and err:", reply, err)
 		time.Sleep(timeSecond)
 	}
 }

@@ -20,6 +20,7 @@ type optSSHToServer struct {
 	baseConnAction  chan string
 	listenHasAction chan string
 	localToRemote   chan int
+	logp            *PrintLog
 }
 
 // ssh -NL 20022:6.106.4.5:22 -J TypeMoon ADMINISTRATOR@10.42.211.143 -p 8606
@@ -27,7 +28,7 @@ type optSSHToServer struct {
 func PublicKeyAuth(priFile string, passphrase string) (ssh.AuthMethod, error) {
 	priKey, err := os.ReadFile(priFile)
 	if err != nil {
-		log.Fatalln("read prikey fail: ", err)
+		log.Fatalln("read prikey fail:", err)
 		return nil, err
 	}
 
@@ -36,7 +37,7 @@ func PublicKeyAuth(priFile string, passphrase string) (ssh.AuthMethod, error) {
 		signer, err = ssh.ParsePrivateKeyWithPassphrase(priKey, []byte(passphrase))
 	}
 	if err != nil {
-		log.Fatalln("parse prikey fail: ", err)
+		log.Fatalln("parse prikey fail:", err)
 		return nil, err
 	}
 	return ssh.PublicKeys(signer), nil
@@ -44,7 +45,8 @@ func PublicKeyAuth(priFile string, passphrase string) (ssh.AuthMethod, error) {
 
 func sshToServerByJump(baseCtx context.Context, serverName string, sshconf *confopt.SSHConfig) error {
 	var (
-		err error
+		err  error
+		logp = NewPrintLog("sshToServer", "")
 	)
 	// 目标服务器配置
 	targetHost := sshconf.ServerHost
@@ -89,7 +91,7 @@ func sshToServerByJump(baseCtx context.Context, serverName string, sshconf *conf
 	// 连接到跳板机
 	jumpConn, err := ssh.Dial("tcp", jumpHost, jumpConfig)
 	if err != nil {
-		log.Println("Error Failed to connect to jump host: ", err)
+		logp.Print("Error Failed to connect to jump host:", err)
 		return err
 	}
 	defer jumpConn.Close()
@@ -97,14 +99,14 @@ func sshToServerByJump(baseCtx context.Context, serverName string, sshconf *conf
 	// 通过跳板机连接目标服务器
 	targetConn, err := jumpConn.Dial("tcp", targetHost)
 	if err != nil {
-		log.Println("Error Failed to connect to target host through jump host: ", err, serverName)
+		logp.Print("Error Failed to connect target host through jump host:", err, serverName)
 		return err
 	}
 
 	// 创建目标服务器的 SSH 客户端
 	targetSSHConn, chans, reqs, err := ssh.NewClientConn(targetConn, targetHost, targetConfig)
 	if err != nil {
-		log.Println("Error Failed to establish SSH connection to target host: ", err)
+		logp.Print("Error Failed to establish SSH connection to target host:", err)
 		return err
 	}
 	defer targetSSHConn.Close()
@@ -115,12 +117,12 @@ func sshToServerByJump(baseCtx context.Context, serverName string, sshconf *conf
 	// 设置本地监听端口
 	localListener, err := net.Listen("tcp", localHostPort)
 	if err != nil {
-		log.Println("Error Failed to set up local listener: ", err)
+		logp.Print("Error Failed to set up local listener:", err)
 		return err
 	}
 	defer localListener.Close()
 
-	log.Printf("sshToServerByJump->Forwarding %s to %s >> %s", localHostPort, remoteAddr, serverName)
+	logp.PrintF("->Forwarding %s to %s >> %s, jump start", localHostPort, remoteAddr, serverName)
 	listenChan := make(chan string, 66)
 	defer close(listenChan)
 
@@ -275,25 +277,26 @@ func sshToServerByJump(baseCtx context.Context, serverName string, sshconf *conf
 	// }
 }
 
-func baseConnCancel(baseCtx context.Context, connActionChan chan string, servName string, localConn net.Listener) {
+func baseConnCancel(baseCtx context.Context, connActionChan chan string, serverName string, localConn net.Listener) {
+	logp := NewPrintLog("baseConnCancel", serverName)
 
 	time.Sleep(6 * time.Second)
 	var baseNumInt int = 0
-	log.Println("baseConnCancel localListener ready close 600s: ", servName)
+	logp.Print("localListener ready close 600s:")
 	for {
 		select {
 		case connActionStr, ok := <-connActionChan:
 			if !ok {
 				localConn.Close()
-				log.Println("baseConnCancel localListener close now by connActionChan close!", servName)
+				logp.Print("localListener close by connActionChan close!")
 				return
 			}
 			baseNumInt = 0
-			log.Println("baseConnCancel baseConnChan count has new value: ", connActionStr)
+			logp.Print("connActionChan has new value:", connActionStr)
 
 		case nilStruct, ok := <-baseCtx.Done():
 			localConn.Close()
-			log.Println("baseConnCancel localListener close now by baseCtx Cancel!", servName, " | ", nilStruct, ok)
+			logp.Print("localListener close by baseCtx Cancel!", nilStruct, ok)
 			return
 
 		default:
@@ -301,7 +304,7 @@ func baseConnCancel(baseCtx context.Context, connActionChan chan string, servNam
 			baseNumInt++
 			if baseNumInt > 600 {
 				localConn.Close()
-				log.Println("baseConnCancel localListener close now! ", servName, baseNumInt)
+				logp.Print("localListener close now!", baseNumInt)
 
 				return
 			}
@@ -315,6 +318,7 @@ func connTimeoutCancel(
 	hasActionChan chan string,
 	localConn net.Listener,
 ) {
+	logp := NewPrintLog("connTimeoutCancel", serverName)
 	exitChan := make(chan string, 6)
 	defer close(exitChan)
 
@@ -325,15 +329,15 @@ func connTimeoutCancel(
 			select {
 			case _, ok := <-ctx.Done():
 				exitChan <- "exit_channel connTimeoutCancel ctx close"
-				log.Println("connTimeoutCancel ctx.Done close: ", serverName, ok)
+				logp.Print("go func select ctx.Done close:", ok)
 				return
 			case actionStr, ok := <-hasActionChan:
 				if !ok {
-					log.Println("hasActionChan close in connTimeoutCancel ", serverName)
+					logp.Print("go func select hasActionChan is close")
 					exitChan <- "exit_channel hasActionChan close"
 					return
 				}
-				log.Printf("hasActionChan value: %s, connTimeoutCancel server -> %s \n ", actionStr, serverName)
+				logp.PrintF("go func select received <-hasActionChan value: %s \n ", actionStr)
 				// 每次发送数据时间重新初始化
 				outInt = 0
 			default:
@@ -351,7 +355,7 @@ func connTimeoutCancel(
 		select {
 		case exitStr := <-exitChan:
 			localConn.Close()
-			log.Println("cancel success ++++++++ ", serverName, exitStr, " | ", ctx.Err())
+			logp.Print("cancel success ++++++++", exitStr, "|", ctx.Err())
 			return
 		default:
 			time.Sleep(time.Second)
@@ -365,7 +369,7 @@ func connClose(ctx context.Context, serverName string, local, remote net.Conn) {
 		case _, ok := <-ctx.Done():
 			remote.Close()
 			local.Close()
-			log.Println(serverName+" remoteConn localConn close now, ", ok)
+			log.Println("connClose remoteConn localConn close now,", serverName, ok)
 			return
 		default:
 			time.Sleep(6 * time.Second)
@@ -375,7 +379,8 @@ func connClose(ctx context.Context, serverName string, local, remote net.Conn) {
 
 func sshToServer(baseCtx context.Context, serverName string, sshconf *confopt.SSHConfig) error {
 	var (
-		err error
+		err  error
+		logp = NewPrintLog("sshToServer", "")
 	)
 	// 目标服务器配置
 	targetHost := sshconf.ServerHost
@@ -400,7 +405,7 @@ func sshToServer(baseCtx context.Context, serverName string, sshconf *confopt.SS
 	// 连接到目标服务器
 	targetConn, err := ssh.Dial("tcp", targetHost, targetConfig)
 	if err != nil {
-		log.Printf("Error Failed to connect to target host: %v", err)
+		logp.PrintF("Error Failed to connect to target host: %v", err)
 		return err
 	}
 	defer targetConn.Close()
@@ -408,12 +413,12 @@ func sshToServer(baseCtx context.Context, serverName string, sshconf *confopt.SS
 	// 设置本地监听端口
 	localListener, err := net.Listen("tcp", localHostPort)
 	if err != nil {
-		log.Printf("Error Failed to set up local listener: %v", err)
+		logp.PrintF("Error Failed to set up local listener: %v", err)
 		return err
 	}
 	defer localListener.Close()
 
-	log.Printf("sshToServer->Forwarding %s to %s >> %s,no jump", localHostPort, remoteAddr, serverName)
+	logp.PrintF("->Forwarding %s to %s >> %s,no jump", localHostPort, remoteAddr, serverName)
 	listenChan := make(chan string, 66)
 	defer close(listenChan)
 
@@ -437,6 +442,7 @@ func sshToServer(baseCtx context.Context, serverName string, sshconf *confopt.SS
 		baseConnAction:  baseConnActionChan,
 		listenHasAction: listenHasActionChan,
 		localToRemote:   localToRemoteChan,
+		logp:            logp,
 	}
 	err = startSSHCon(baseCtx, localListener, targetConn, sshconf, opt)
 	if err != nil {
@@ -453,7 +459,6 @@ func channelIsCloseAny[CN ~chan VAL, VAL string | int](chanArr ...CN) bool {
 				return false
 			}
 		default:
-			return true
 		}
 	}
 	return true
@@ -463,25 +468,34 @@ func startSSHCon(
 	ctx context.Context,
 	localListener net.Listener,
 	targetConn *ssh.Client,
-	sshconf *confopt.SSHConfig,
+	sshConf *confopt.SSHConfig,
 	opt *optSSHToServer,
 ) error {
 	var (
 		// err        error
 		clientNum             int
 		errStr, actionChanStr string
-		serverName            string = sshconf.ServerName
-		remoteAddr            string = sshconf.Proxy
+		serverName            string = sshConf.ServerName
+		remoteAddr            string = sshConf.Proxy
 
 		listenChan          = opt.listenLocal
 		baseConnActionChan  = opt.baseConnAction
 		listenHasActionChan = opt.listenHasAction
 		localToRemoteChan   = opt.localToRemote
+
+		logp = opt.logp
 	)
+	if logp == nil {
+		isJump := ""
+		if sshConf.NeedJump {
+			isJump = "jump"
+		}
+		logp = NewPrintLog("opt logp lost"+serverName, isJump)
+	}
 
 	for {
 		localConn, err := localListener.Accept()
-		log.Println("localListener.Accept(): ", localConn, err, serverName)
+		logp.Print("localListener.Accept():", localConn, err, serverName)
 		if err != nil && strings.Contains(err.Error(), "use of closed network connection") {
 			return nil
 		}
@@ -489,7 +503,7 @@ func startSSHCon(
 
 		select {
 		case listenChanStr, ok := <-listenChan:
-			log.Println("listenChan is close sshProxy restart:", listenChanStr, ok)
+			logp.Print("listenChan is close, ready restart:", listenChanStr, ok, serverName)
 			if !ok {
 				return nil
 			}
@@ -498,12 +512,12 @@ func startSSHCon(
 			}
 			return nil
 		default:
-			log.Println("listenChan nothing data")
+			logp.Print("listenChan nothing data")
 		}
 
 		if err != nil {
 			// 不退出, 关闭本次链接
-			log.Println("Error Failed to accept local connection: ", err)
+			logp.Print("Error Failed to accept local connection:", err)
 			clientNum++
 			if clientNum >= 10 {
 				return err
@@ -512,12 +526,12 @@ func startSSHCon(
 		}
 
 		go func() {
-			log.Println("go func start targetClient.Dial: ", remoteAddr)
+			logp.Print("go func start targetClient.Dial:", remoteAddr, serverName)
 			// 建立到目标服务器的连接
 			remoteConn, err := targetConn.Dial("tcp", remoteAddr)
-			log.Println("go func after targetConn.Dial: ", err)
+			logp.Print("go func after targetConn.Dial:", err)
 			if err != nil {
-				log.Printf("Error %s Failed to connect to remote address %s: %v", serverName, remoteAddr, err)
+				logp.Print("Error Failed targetConn connect to remote addr:", serverName, remoteAddr, err)
 				listenChan <- "go func targetConn.Dial error: " + err.Error()
 				return
 			}
@@ -536,33 +550,34 @@ func startSSHCon(
 					readCancel()
 				}()
 
-				// 判断通道是否有关闭的
-				if !channelIsCloseAny(baseConnActionChan, listenHasActionChan, listenChan) || !channelIsCloseAny(localToRemoteChan) {
-					return
-				}
 				for {
+					// 判断通道是否有关闭的
+					if !channelIsCloseAny(baseConnActionChan, listenHasActionChan, listenChan) || !channelIsCloseAny(localToRemoteChan) {
+						return
+					}
+
 					buf := make([]byte, 65536)
 					n, err := localConn.Read(buf)
 					if err != nil && err != io.EOF {
-						log.Printf("Error reading from client: %v, %s", err, serverName)
+						logp.PrintF("Error reading from client: %v, %s", err, serverName)
 						return
 					}
 					if n > 0 {
-						log.Printf("Sent to server: %d bytes, %s", n, serverName)
+						logp.PrintF("local Sent to server: %d bytes, %s", n, serverName)
 						localToRemoteChan <- n
 						_, err := remoteConn.Write(buf[:n])
 						if err == io.EOF {
-							log.Printf("Error remoteConn.Write to remote server EOF: %v, %s", err, serverName)
+							logp.PrintF("Error remoteConn.Write to remote server EOF: %v, %s", err, serverName)
 							localListener.Close()
 							listenChan <- "yes"
 							return
 						}
 						if err != nil && err != io.EOF {
-							log.Printf("Error writing to remote server: %v", err)
+							logp.PrintF("Error writing to remote server: %v", err)
 							return
 						}
-						if len(listenHasActionChan) > 1 {
-							log.Println("listenHasActionChan_baseConnChan count continue stop add: ", len(listenHasActionChan), len(baseConnActionChan))
+						if len(listenHasActionChan) > 2 {
+							logp.PrintF("listenHasActionChan_baseConnActionChan continue stop add:", len(listenHasActionChan), len(baseConnActionChan))
 							continue
 						}
 						actionChanStr = serverName + "_" + strconv.Itoa(n)
@@ -570,13 +585,13 @@ func startSSHCon(
 						listenHasActionChan <- actionChanStr
 					}
 					if err == io.EOF {
-						log.Println("client=>server go func: err is io.EOF => return by " + serverName)
+						logp.Print("client=>server go func: err is io.EOF => return by:", serverName)
 						return
 					}
 
 				}
 			}()
-			go listenLocalToRemote(readCtx, localToRemoteChan, sshconf)
+			go listenLocalToRemote(readCtx, localToRemoteChan, sshConf)
 
 			// 获取发送和接收记录数据流量
 			// go func() {
@@ -599,20 +614,20 @@ func startSSHCon(
 			// 转发数据
 			// go io.Copy(remoteConn, localConn)
 			_, err = io.Copy(localConn, remoteConn)
-			log.Println("sshToServer io.Copy:", err, serverName)
+			logp.Print("sshToServer io.Copy:", err, serverName)
 			// +++++++++++++++++ server => client END +++++++++++++++++
 		}()
 
 		for range 2 {
 			select {
 			case errStr = <-listenChan:
-				log.Println(serverName + " listen: " + errStr)
+				logp.Print("for <-listenChan has err", serverName, errStr)
 				if errStr != "yes" {
 					return errors.New(errStr)
 				}
 				return nil
 			default:
-				log.Println(serverName + " listen: no error")
+				logp.Print("listen: no error,", serverName)
 				time.Sleep(1 * time.Second)
 			}
 		}
@@ -621,20 +636,21 @@ func startSSHCon(
 }
 
 func listenLocalToRemote(ctx context.Context, localRemoteChan chan int, sshconf *confopt.SSHConfig) {
+	logp := NewPrintLog("listenLocalToRemote", "")
 	serverName := sshconf.ServerName
 	for {
 		select {
 		case _, ok := <-ctx.Done():
-			log.Println("client=>server go func select: readCtx close by "+serverName, ok)
+			logp.Print("for select: readCtx close by:", serverName, ok)
 			return
 		case _, ok := <-localRemoteChan:
 			if !ok {
-				log.Println("client=>server go func select: ok is false => localToRemoteChan close by " + serverName)
+				logp.Print("client=>server select: ok is false => localToRemoteChan close by:", serverName)
 				return
 			}
 			// 处理客户端数据到服务器的传输
 		default:
-			log.Println("client=>server go func select default: no error by " + serverName)
+			logp.Print("client=>server select default: no error,", serverName)
 			time.Sleep(6 * time.Second)
 		}
 	}

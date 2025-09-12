@@ -14,6 +14,8 @@ import (
 )
 
 func SocksToHttps(conf *confopt.Config) error {
+	logp := NewPrintLog("SocksToHttps", "")
+
 	socksAddr := conf.SockToHttp.SockAddr
 	// 创建 SOCKS5 dialer
 	dialer, err := proxy.SOCKS5("tcp", socksAddr, nil, proxy.Direct)
@@ -40,7 +42,7 @@ func SocksToHttps(conf *confopt.Config) error {
 	proxyServer.Tr = transport
 	proxyServer.Verbose = false
 
-	log.Println("Starting HTTP(S) proxy on :7890 -> socks5", socksAddr, conf.SockToHttp)
+	logp.PrintF("Starting HTTP(S) socks5 on %s -> proxy on %s", socksAddr, conf.SockToHttp.ToHttp)
 	if err := http.ListenAndServe(conf.SockToHttp.ToHttp, proxyServer); err != nil {
 		return errors.New("SocksToHttps-proxy server failed:" + err.Error())
 	}

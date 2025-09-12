@@ -46,6 +46,7 @@ func GrepPro(searchStr, searchDir string, isShowDir bool) {
 
 	if isShowDir {
 		fmt.Println("find dir path: ", strings.Join(fileDir, "\n"))
+		fmt.Print("\n")
 	}
 
 	var wg sync.WaitGroup

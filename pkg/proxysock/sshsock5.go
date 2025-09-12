@@ -48,7 +48,7 @@ func handleSocksConn(local net.Conn, sshClient *ssh.Client) {
 	}
 
 	// read request
-	reqHead, err := readExact(local, 8)
+	reqHead, err := readExact(local, 4)
 	if err != nil {
 		logp.Print("->read request header error:", err)
 		return
@@ -73,7 +73,7 @@ func handleSocksConn(local net.Conn, sshClient *ssh.Client) {
 	switch atyp {
 	case 0x01:
 		// IPv4
-		b, err := readExact(local, 8)
+		b, err := readExact(local, 4)
 		if err != nil {
 			logp.Print("->read ipv4 error:", err)
 			return

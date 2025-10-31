@@ -192,6 +192,7 @@ func RunSSHSock5(ctx context.Context, conf *confopt.Config, onlineChan chan stri
 	defer func() {
 		if err != nil {
 			onlineChan <- "RestartSSHSockProxy"
+			logp.Print("connect ssh.Dial fail:", err)
 		}
 	}()
 	if err != nil {
@@ -237,7 +238,6 @@ func sock5Cancel(ctx context.Context, listen net.Listener, sshClient *ssh.Client
 		default:
 			time.Sleep(time.Second)
 		}
-
 	}
 }
 

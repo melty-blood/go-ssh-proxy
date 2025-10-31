@@ -49,6 +49,7 @@ func SocksToHttps(conf *confopt.Config) error {
 	return nil
 }
 
+// Deprecated: As of next version 1.2.4
 func SocksToHttpV1(conf *confopt.Config) error {
 	_, err := proxy.SOCKS5("tcp", conf.SockToHttp.SockAddr, nil, proxy.Direct)
 	if err != nil {

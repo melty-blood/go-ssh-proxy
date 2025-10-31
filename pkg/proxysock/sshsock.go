@@ -46,7 +46,7 @@ func PublicKeyAuth(priFile string, passphrase string) (ssh.AuthMethod, error) {
 func sshToServerByJump(baseCtx context.Context, serverName string, sshconf *confopt.SSHConfig) error {
 	var (
 		err  error
-		logp = NewPrintLog("sshToServer", "")
+		logp = NewPrintLog("sshToServerByJump", "")
 	)
 	// 目标服务器配置
 	targetHost := sshconf.ServerHost
@@ -555,6 +555,12 @@ func startSSHCon(
 					return
 				}
 				for {
+					select {
+					case _, ok := <-readCtx.Done():
+						logp.Print("local read remote data goroutine exit:", serverName, ok)
+						return
+					default:
+					}
 
 					buf := make([]byte, 65536)
 					n, err := localConn.Read(buf)

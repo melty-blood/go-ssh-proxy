@@ -7,6 +7,11 @@ AcgPic:
   SearchImgDir: "/dev/shm/temp"
   Threshold: 20
 
+# ${ENV_NAME}      : EnvList.EnvNum
+# ${SSH_ENV_PATH}  : EnvList.EnvPath
+# ${UPLOAD_PATH}   : SftpUploadPath
+# ${PACKAGE_NAME}  : SftpUploadPath 路径中指定的文件名,如"/home/akiha/lovelive/file.tar.gz"中的"file.tar.gz"
+# ${PACKAGE_PATH}  : EnvList.EnvPath拼上${PACKAGE_NAME}
 Publish:
   GitList: [
     {
@@ -37,8 +42,57 @@ Publish:
       "SSHHost": "SSH_HOST_IP",
       "SSHPort": "PORT",
       "SSHUser": "USER_NAME",
+      "SSHPasswd": "SSH_PASSWORD",
+      "SSHCmd": ["pwd", "cd /home/akiha/lovelive/", "pwd", "ls -lh", "mv ${UPLOAD_PATH} ${SSH_ENV_PATH}", "tar -zxf ${PACKAGE_PATH} -C ${SSH_ENV_PATH}", "rm -f ${PACKAGE_PATH}", "cd ${SSH_ENV_PATH}", "pwd", "echo 'init action'"],
+    },
+    {
+      "KeyName": "idoly-pride", # only one, key name
+      "RepoUrl": "GIT_PATH",
+      "ClonePath": "/dev/shm/code_dir/lovelive_code",
+      "TargzPath": "/dev/shm/code_dir/code.tar.gz",
+      "TargzIsNeedTopDir": false, # Whether to perform compression requires an upper-level folder
+      "CheckBranch": "CHECKOUT_BRANCH", # local branch
+      "RemoteName": "origin",
+      "RemoteBranch": "REMOTE_BRANCH",
+      "SSHGitUser": "git",
+      "SSHGitIdentityFile": "SSH_GIT_AUTH_KEY",
+      "SSHGitIdentityPasswd": "",
+      "HttpsGitUser": "GIT_USER",
+      "HttpsGitPat": "GPT",
+      "EnvList": [
+        {
+          "EnvNum": "env1",
+          "EnvPath": "/home/akiha/lovelive/env_one",
+        },
+        {
+          "EnvNum": "ll",
+          "EnvPath": "/home/akiha/lovelive/temp_code/code",
+        },
+      ],
+      # 是否支持多机器部署
+      "IsSSHCluster": false,
+      "SSHCluster": [
+        {
+          "SSHHost": "SSH_HOST_IP",
+          "SSHPort": "PORT",
+          "SSHUser": "USER_NAME",
+          "SSHPasswd": "SSH_PASSWORD",
+          # 是否使用顶部配置的命令
+          "IsUseParentCmd": true,
+          # 如果不使用顶部命令则在此配置命令
+          "SSHCmd": [],
+          # 是否展示命令输出 默认:true
+          "IsShowSSHCmdOut": true,
+        },
+      ],
+      "SftpUploadPath": "TARGET_UPLOAD_PATH",
+      "SSHHost": "SSH_HOST_IP",
+      "SSHPort": "PORT",
+      "SSHUser": "USER_NAME",
       "SSHPasswd": "ssh_PASSWORD",
-      "SSHCmd": ["pwd", "cd /home/akiha/lovelive/", "pwd", "ls -lh", "mv ${UPLOAD_PATH} ${SSH_ENV_PATH}", "tar -zxf ${PACKAGE_PATH} -C ${SSH_ENV_PATH}", "rm -f ${PACKAGE_PATH}", "cd ${SSH_ENV_PATH}", "pwd", "echo 'php init --env=${ENV_NAME} --overwrite=a'", "chown -R akiha:akiha ./*"],
+      "SSHCmd": ["pwd", "cd /home/akiha/lovelive/", "pwd", "ls -lh", "mv ${UPLOAD_PATH} ${SSH_ENV_PATH}", "tar -zxf ${PACKAGE_PATH} -C ${SSH_ENV_PATH}", "rm -f ${PACKAGE_PATH}", "cd ${SSH_ENV_PATH}", "pwd", "echo 'init action'"],
+      # 是否展示命令输出 默认:true
+      "IsShowSSHCmdOut": true,
     }
   ]
 

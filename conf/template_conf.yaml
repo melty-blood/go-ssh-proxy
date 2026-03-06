@@ -77,6 +77,7 @@ Publish:
           "SSHPort": "PORT",
           "SSHUser": "USER_NAME",
           "SSHPasswd": "SSH_PASSWORD",
+          "SSHIdentityFile": "",
           # 是否使用顶部配置的命令
           "IsUseParentCmd": true,
           # 如果不使用顶部命令则在此配置命令
@@ -90,6 +91,8 @@ Publish:
       "SSHPort": "PORT",
       "SSHUser": "USER_NAME",
       "SSHPasswd": "ssh_PASSWORD",
+      # ssh密钥登陆, 如果配置优先使用
+      "SSHIdentityFile": "",
       "SSHCmd": ["pwd", "cd /home/akiha/lovelive/", "pwd", "ls -lh", "mv ${UPLOAD_PATH} ${SSH_ENV_PATH}", "tar -zxf ${PACKAGE_PATH} -C ${SSH_ENV_PATH}", "rm -f ${PACKAGE_PATH}", "cd ${SSH_ENV_PATH}", "pwd", "echo 'init action'"],
       # 是否展示命令输出 默认:true
       "IsShowSSHCmdOut": true,

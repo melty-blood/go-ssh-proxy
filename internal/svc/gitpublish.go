@@ -7,9 +7,11 @@ import (
 	"honoka/pkg/confopt"
 	"honoka/pkg/network/sshcmd"
 	"honoka/pkg/tarzip"
+	"log"
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-git/go-git/v6"
@@ -76,12 +78,14 @@ func PublishSSH(gitConf *confopt.PublishGitOpt) error {
 	if publishPath[len(publishPath)-1:] != string(os.PathSeparator) {
 		publishPath = publishPath + string(os.PathSeparator)
 	}
-	fmt.Println("publishPath:", publishPath)
 
+	err = tarzip.CreateTargz(gitConf.ClonePath, gitConf.TargzPath, gitConf.TargzIsNeedTopDir)
+	if err != nil {
+		return err
+	}
 	uploadNameArr := strings.Split(gitConf.SftpUploadPath, string(os.PathSeparator))
 	packageTargzName := uploadNameArr[len(uploadNameArr)-1]
 	fileName := publishPath + packageTargzName
-	fmt.Println("fileName:", packageTargzName, fileName)
 
 	// init ENV_MAP
 	envArr := []string{
@@ -93,45 +97,40 @@ func PublishSSH(gitConf *confopt.PublishGitOpt) error {
 	}
 	envMap := InitEnvParam(envArr)
 
-	newCmd := []string{}
-	for _, cmdV := range gitConf.SSHCmd {
-		for envMapKey, envMapVal := range envMap {
-			cmdV = strings.ReplaceAll(cmdV, envMapKey, envMapVal)
+	// if target is multiple machines
+	if gitConf.IsSSHCluster {
+		err = runSSHCluster(gitConf, envMap)
+		if err != nil {
+			return err
 		}
-		newCmd = append(newCmd, cmdV)
+		return nil
 	}
 
-	err = tarzip.CreateTargz(gitConf.ClonePath, gitConf.TargzPath, gitConf.TargzIsNeedTopDir)
-	if err != nil {
-		return err
-	}
-
+	// ready excute command
+	newCmd := replaceSSHCmd(gitConf.SSHCmd, envMap)
 	sshConf := &sshcmd.SSHConf{
 		User:         gitConf.SSHUser,
 		Password:     gitConf.SSHPasswd,
-		IdentityFile: "",
+		IdentityFile: gitConf.SSHIdentityFile,
 		Host:         gitConf.SSHHost,
 		Port:         gitConf.SSHPort,
 	}
-	conn, _ := sshcmd.SSHConnect(sshConf)
-	// upload file to server
+	// upload file params
 	fileMap := []*sshcmd.SftpFile{
 		{
 			LFilePath: gitConf.TargzPath,
 			RFilePath: gitConf.SftpUploadPath,
 		},
 	}
-	err = sshcmd.SSHUploadFile(fileMap, conn)
+	cmdRes, err := runSSH(sshConf, fileMap, newCmd)
 	if err != nil {
 		return err
 	}
-	cmdRes, err := sshcmd.RunCmdWithSSH(newCmd, conn)
-	if err != nil {
-		return err
-	}
-
-	for _, cmdV := range cmdRes {
-		fmt.Println(strings.Trim(cmdV, ""))
+	if gitConf.IsShowSSHCmdOut {
+		fmt.Println("============ CMD OUTPUT ============")
+		for _, cmdV := range cmdRes {
+			fmt.Println(strings.Trim(cmdV, ""))
+		}
 	}
 	return nil
 }
@@ -143,7 +142,7 @@ func PublishFastOrderGit(fastOrder *PublishFastOrder, conf *confopt.Config) (*co
 		return nil, errors.New("error git key not exists in conf file")
 	}
 	confGitInfo.SelectEnv = fastOrder.GitEnv
-	fmt.Println("fastOrder:", fastOrder.GitKey, "--", fastOrder.GitEnv)
+	log.Println("fastOrder:", fastOrder.GitKey, "--", fastOrder.GitEnv)
 
 	return PublishCode(confGitInfo)
 }
@@ -191,10 +190,17 @@ func PublishInteractionGit(conf *confopt.Config) (*confopt.PublishGitOpt, error)
 }
 
 func PublishCode(opt *confopt.PublishGitOpt) (*confopt.PublishGitOpt, error) {
+	// init clone path directory
+	clonePathArr := strings.Split(opt.ClonePath, "/")
+	err := os.Mkdir(strings.Join(clonePathArr[:len(clonePathArr)-1], "/"), 0755)
+	if err != nil && !os.IsExist(err) {
+		return nil, errors.New("clone path create fail" + err.Error())
+	}
+
 	// git clone
 	gitRep, err := git.PlainOpenWithOptions(opt.ClonePath, &git.PlainOpenOptions{})
 	if err != nil && errors.Is(err, git.ErrRepositoryNotExists) {
-		fmt.Println("ready clone remote:", err)
+		log.Println("ready clone remote:", err)
 		gitRep, err = GitCloneSSH(opt)
 		if err != nil {
 			return nil, errors.New("git clone failed:" + err.Error())
@@ -210,7 +216,7 @@ func PublishCode(opt *confopt.PublishGitOpt) (*confopt.PublishGitOpt, error) {
 		return nil, errors.New("can not found remote branch:" + err.Error())
 	}
 	remoteCommitHash := remoteRef.Hash()
-	fmt.Printf("Find remote branche: '%s', point at Commit: %s \n", remoteRefName.Short(), remoteCommitHash)
+	log.Printf("Find remote branche: '%s', point at Commit: %s \n", remoteRefName.Short(), remoteCommitHash)
 
 	// show HEAD
 	gitReference, err := gitRep.Head()
@@ -219,7 +225,7 @@ func PublishCode(opt *confopt.PublishGitOpt) (*confopt.PublishGitOpt, error) {
 	}
 	workTree, err := gitRep.Worktree()
 	if gitReference.Name().Short() != opt.CheckBranch {
-		fmt.Println("gitRep.workTree: ", err)
+		log.Println("gitRep.workTree: ", err)
 		err = workTree.Checkout(&git.CheckoutOptions{
 			// Hash: new branch point to this Commit
 			Hash:   remoteCommitHash,
@@ -230,7 +236,7 @@ func PublishCode(opt *confopt.PublishGitOpt) (*confopt.PublishGitOpt, error) {
 			return nil, errors.New("git checkout branch failed:" + err.Error())
 		}
 	}
-	fmt.Println("git pull head name:", gitReference.Name().Short())
+	log.Println("git pull head name:", gitReference.Name().Short())
 	err = GitPullCode(gitRep, workTree, opt)
 	if err != nil {
 		return nil, errors.New("git pull code failed:" + err.Error())
@@ -242,7 +248,7 @@ func PublishCode(opt *confopt.PublishGitOpt) (*confopt.PublishGitOpt, error) {
 		return nil, errors.New("git logs err:" + err.Error())
 	}
 	for _, logsV := range logsArr {
-		fmt.Println("log: ", logsV)
+		fmt.Println("show git log: ", logsV)
 	}
 	return opt, nil
 }
@@ -296,7 +302,7 @@ func GitPullCode(gitRep *git.Repository, workTree *git.Worktree, opt *confopt.Pu
 
 	err = workTree.Pull(pullOpt)
 	if err == git.NoErrAlreadyUpToDate {
-		fmt.Println("git pull err NoErrAlreadyUpToDate:", err)
+		log.Println("git pull err NoErrAlreadyUpToDate:", err)
 		return nil
 	}
 	if err != nil {
@@ -339,4 +345,96 @@ func buildPublishMap(conf *confopt.Config) (gitMap map[string]*confopt.PublishGi
 		gitArr = append(gitArr, val.KeyName)
 	}
 	return
+}
+
+func runSSHCluster(gitConf *confopt.PublishGitOpt, envMap map[string]string) error {
+	if len(gitConf.SSHCluster) < 1 {
+		return errors.New("SSHCluster conf nothing, check conf")
+	}
+	var (
+		sshConf  *sshcmd.SSHConf
+		wgRunSSH sync.WaitGroup
+	)
+	errSSHMap := map[string]string{}
+	fileMap := []*sshcmd.SftpFile{
+		{
+			LFilePath: gitConf.TargzPath,
+			RFilePath: gitConf.SftpUploadPath,
+		},
+	}
+	sshShareCmd := replaceSSHCmd(gitConf.SSHCmd, envMap)
+	cmdOutputMap := map[string][]string{}
+
+	wgRunSSH.Add(len(gitConf.SSHCluster))
+	for _, cVal := range gitConf.SSHCluster {
+
+		go func() {
+			defer wgRunSSH.Done()
+			log.Println("start ssh ->", cVal.SSHHost)
+
+			sshCmd := sshShareCmd
+			// if false, use self diy cmd, true use parent cmd
+			if !cVal.IsUseParentCmd {
+				sshCmd = replaceSSHCmd(cVal.SSHCmd, envMap)
+			}
+			sshConf = &sshcmd.SSHConf{
+				User:         cVal.SSHUser,
+				Password:     cVal.SSHPasswd,
+				IdentityFile: cVal.SSHIdentityFile,
+				Host:         cVal.SSHHost,
+				Port:         cVal.SSHPort,
+			}
+			cmdOutput, err := runSSH(sshConf, fileMap, sshCmd)
+			if err != nil {
+				errSSHMap[sshConf.Host] = err.Error()
+			}
+			if cVal.IsShowSSHCmdOut {
+				cmdOutputMap[cVal.SSHHost] = cmdOutput
+			}
+		}()
+	}
+	wgRunSSH.Wait()
+	if len(errSSHMap) > 0 {
+		for eKey, eVal := range errSSHMap {
+			log.Println("Error: run ssh has err:", eKey, " ==> ", eVal)
+		}
+		return errors.New("run ssh cluster has some error, see the above log")
+	}
+
+	for oKey, oVal := range cmdOutputMap {
+		fmt.Println("============ CMD OUTPUT ", oKey, "============")
+		for _, cmdRes := range oVal {
+			fmt.Println(strings.Trim(cmdRes, ""))
+		}
+	}
+	return nil
+}
+
+func runSSH(sshConf *sshcmd.SSHConf, sshUploadFile []*sshcmd.SftpFile, sshCmd []string) ([]string, error) {
+	conn, err := sshcmd.SSHConnect(sshConf)
+	if err != nil {
+		return nil, errors.New("ssh connect err:" + err.Error())
+	}
+	// upload file to server
+	err = sshcmd.SSHUploadFile(sshUploadFile, conn)
+	if err != nil {
+		return nil, errors.New("ssh upload fail:" + err.Error())
+	}
+	cmdRes, err := sshcmd.RunCmdWithSSH(sshCmd, conn)
+	if err != nil {
+		return nil, errors.New("ssh run cmd fail:" + err.Error())
+	}
+
+	return cmdRes, nil
+}
+
+func replaceSSHCmd(cmd []string, envMap map[string]string) []string {
+	newCmd := []string{}
+	for _, cmdV := range cmd {
+		for envMapKey, envMapVal := range envMap {
+			cmdV = strings.ReplaceAll(cmdV, envMapKey, envMapVal)
+		}
+		newCmd = append(newCmd, cmdV)
+	}
+	return newCmd
 }

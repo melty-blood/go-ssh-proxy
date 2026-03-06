@@ -90,11 +90,26 @@ type (
 		EnvList              []PublishGitEnvList
 		SelectEnv            string `json:",optional"`
 		SftpUploadPath       string
-		SSHHost              string
-		SSHPort              string
-		SSHUser              string
-		SSHPasswd            string
-		SSHCmd               []string
+		SSHHost              string                 `json:",optional"`
+		SSHPort              string                 `json:",optional"`
+		SSHUser              string                 `json:",optional"`
+		SSHPasswd            string                 `json:",optional"`
+		SSHIdentityFile      string                 `json:",optional"`
+		SSHCmd               []string               `json:",optional"`
+		IsShowSSHCmdOut      bool                   `json:",optional,default=true"`
+		IsSSHCluster         bool                   `json:",optional"`
+		SSHCluster           []PublishSSHClusterOpt `json:",optional"`
+	}
+
+	PublishSSHClusterOpt struct {
+		SSHHost         string
+		SSHPort         string
+		SSHUser         string
+		SSHPasswd       string   `json:",optional"`
+		SSHIdentityFile string   `json:",optional"`
+		IsUseParentCmd  bool     `json:",optional"`
+		SSHCmd          []string `json:",optional"`
+		IsShowSSHCmdOut bool     `json:",optional,default=true"`
 	}
 
 	PublishGitEnvList struct {

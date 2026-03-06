@@ -21,6 +21,7 @@ type (
 		User, Password, IdentityFile, Host, Port string
 	}
 	SftpFile struct {
+		// LFilePath: local file path | RFilePath: remote file path
 		LFilePath, RFilePath string
 	}
 )

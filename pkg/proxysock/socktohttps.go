@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"honoka/pkg/confopt"
-	"log"
 	"net"
 	"net/http"
 	"time"
@@ -45,25 +44,6 @@ func SocksToHttps(conf *confopt.Config) error {
 	logp.PrintF("Starting HTTP(S) socks5 on %s -> proxy on %s", socksAddr, conf.SockToHttp.ToHttp)
 	if err := http.ListenAndServe(conf.SockToHttp.ToHttp, proxyServer); err != nil {
 		return errors.New("SocksToHttps-proxy server failed:" + err.Error())
-	}
-	return nil
-}
-
-// Deprecated: As of next version 1.2.4
-func SocksToHttpV1(conf *confopt.Config) error {
-	_, err := proxy.SOCKS5("tcp", conf.SockToHttp.SockAddr, nil, proxy.Direct)
-	if err != nil {
-		log.Fatal("Error creating SOCKS5 proxy: ", err)
-	}
-	proxyLocal := goproxy.NewProxyHttpServer()
-	proxyLocal.Tr = &http.Transport{
-		DialContext: proxy.Dial,
-	}
-
-	log.Println("Starting HTTP and HTTPS proxy on ", conf.SockToHttp.ToHttp)
-	err = http.ListenAndServe(conf.SockToHttp.ToHttp, proxyLocal)
-	if err != nil {
-		log.Fatal("Error starting proxy server: ", err)
 	}
 	return nil
 }

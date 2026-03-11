@@ -352,10 +352,9 @@ func runSSHCluster(gitConf *confopt.PublishGitOpt, envMap map[string]string) err
 		return errors.New("SSHCluster conf nothing, check conf")
 	}
 	var (
-		sshConf  *sshcmd.SSHConf
 		wgRunSSH sync.WaitGroup
+		lock     sync.Mutex
 	)
-	errSSHMap := map[string]string{}
 	fileMap := []*sshcmd.SftpFile{
 		{
 			LFilePath: gitConf.TargzPath,
@@ -363,35 +362,38 @@ func runSSHCluster(gitConf *confopt.PublishGitOpt, envMap map[string]string) err
 		},
 	}
 	sshShareCmd := replaceSSHCmd(gitConf.SSHCmd, envMap)
+	errSSHMap := map[string]string{}
 	cmdOutputMap := map[string][]string{}
 
 	wgRunSSH.Add(len(gitConf.SSHCluster))
 	for _, cVal := range gitConf.SSHCluster {
 
-		go func() {
+		go func(node confopt.PublishSSHClusterOpt) {
 			defer wgRunSSH.Done()
-			log.Println("start ssh ->", cVal.SSHHost)
+			log.Println("start ssh ->", node.SSHHost)
 
 			sshCmd := sshShareCmd
 			// if false, use self diy cmd, true use parent cmd
-			if !cVal.IsUseParentCmd {
-				sshCmd = replaceSSHCmd(cVal.SSHCmd, envMap)
+			if !node.IsUseParentCmd {
+				sshCmd = replaceSSHCmd(node.SSHCmd, envMap)
 			}
-			sshConf = &sshcmd.SSHConf{
-				User:         cVal.SSHUser,
-				Password:     cVal.SSHPasswd,
-				IdentityFile: cVal.SSHIdentityFile,
-				Host:         cVal.SSHHost,
-				Port:         cVal.SSHPort,
+			sshConf := &sshcmd.SSHConf{
+				User:         node.SSHUser,
+				Password:     node.SSHPasswd,
+				IdentityFile: node.SSHIdentityFile,
+				Host:         node.SSHHost,
+				Port:         node.SSHPort,
 			}
 			cmdOutput, err := runSSH(sshConf, fileMap, sshCmd)
+			lock.Lock()
 			if err != nil {
-				errSSHMap[sshConf.Host] = err.Error()
+				errSSHMap[node.SSHHost] = err.Error()
 			}
-			if cVal.IsShowSSHCmdOut {
-				cmdOutputMap[cVal.SSHHost] = cmdOutput
+			if node.IsShowSSHCmdOut {
+				cmdOutputMap[node.SSHHost] = cmdOutput
 			}
-		}()
+			lock.Unlock()
+		}(cVal)
 	}
 	wgRunSSH.Wait()
 	if len(errSSHMap) > 0 {

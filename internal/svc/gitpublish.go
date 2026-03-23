@@ -14,7 +14,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-git/go-git/plumbing/transport"
 	"github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/config"
 	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/object"
 	"github.com/go-git/go-git/v6/plumbing/transport/http"
@@ -201,12 +203,22 @@ func PublishCode(opt *confopt.PublishGitOpt) (*confopt.PublishGitOpt, error) {
 	gitRep, err := git.PlainOpenWithOptions(opt.ClonePath, &git.PlainOpenOptions{})
 	if err != nil && errors.Is(err, git.ErrRepositoryNotExists) {
 		log.Println("ready clone remote:", err)
-		gitRep, err = GitCloneSSH(opt)
+		gitRep, err = GitClone(opt)
 		if err != nil {
 			return nil, errors.New("git clone failed:" + err.Error())
 		}
 	} else if err != nil {
 		return nil, errors.New("git read repo failed:" + err.Error())
+	}
+
+	log.Println("ready git pull code:", opt.RemoteName)
+	fetchOpt, err := GitFetchOpt(opt)
+	if err != nil {
+		return nil, err
+	}
+	err = gitRep.Fetch(fetchOpt)
+	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
+		return nil, errors.New("publish fetch failed:" + err.Error())
 	}
 
 	// git checkout
@@ -253,28 +265,46 @@ func PublishCode(opt *confopt.PublishGitOpt) (*confopt.PublishGitOpt, error) {
 	return opt, nil
 }
 
-func GitCloneSSH(opt *confopt.PublishGitOpt) (*git.Repository, error) {
-	pubKeys, err := ssh.NewPublicKeysFromFile(opt.SSHGitUser, opt.SSHGitIdentityFile, opt.SSHGitIdentityPasswd)
-	if err != nil {
-		return nil, errors.New("GitCloneSSH priKey failed: " + err.Error())
+func gitAuth(opt *confopt.PublishGitOpt) (transport.AuthMethod, error) {
+	if opt.SSHGitIdentityFile != "" {
+		pubKeys, err := ssh.NewPublicKeysFromFile(opt.SSHGitUser, opt.SSHGitIdentityFile, opt.SSHGitIdentityPasswd)
+		if err != nil {
+			return nil, errors.New("git auth priKey failed: " + err.Error())
+		}
+		return pubKeys, nil
 	}
+	return &http.BasicAuth{
+		Username: opt.HttpsGitUser,
+		Password: opt.HttpsGitPat,
+	}, nil
+}
 
+func GitClone(opt *confopt.PublishGitOpt) (*git.Repository, error) {
+	auth, err := gitAuth(opt)
+	if err != nil {
+		return nil, errors.New("git clone auth fail:" + err.Error())
+	}
 	return git.PlainClone(opt.ClonePath, &git.CloneOptions{
 		URL:      opt.RepoUrl,
 		Progress: os.Stdout,
-		Auth:     pubKeys,
+		Auth:     auth,
 	})
 }
 
-func GitCloenHttp(opt *confopt.PublishGitOpt) (*git.Repository, error) {
-	return git.PlainClone(opt.ClonePath, &git.CloneOptions{
-		URL:      opt.RepoUrl,
-		Progress: os.Stdout,
-		Auth: &http.BasicAuth{
-			Username: opt.HttpsGitUser,
-			Password: opt.HttpsGitPat,
-		},
-	})
+func GitFetchOpt(opt *confopt.PublishGitOpt) (*git.FetchOptions, error) {
+	auth, err := gitAuth(opt)
+	if err != nil {
+		return nil, errors.New("git fetch auth fail:" + err.Error())
+	}
+	remoteOpt := opt.RemoteName + "/*"
+	refOpt := config.RefSpec("refs/heads/*:refs/remotes/" + remoteOpt)
+
+	return &git.FetchOptions{
+		RemoteName: opt.RemoteName,
+		Auth:       auth,
+		RefSpecs:   []config.RefSpec{refOpt},
+		Force:      true,
+	}, nil
 }
 
 func GitPullCode(gitRep *git.Repository, workTree *git.Worktree, opt *confopt.PublishGitOpt) error {
@@ -282,22 +312,16 @@ func GitPullCode(gitRep *git.Repository, workTree *git.Worktree, opt *confopt.Pu
 	if err != nil {
 		return err
 	}
+	auth, err := gitAuth(opt)
+	if err != nil {
+		return errors.New("git pull code auth fail:" + err.Error())
+	}
 	pullOpt := &git.PullOptions{
 		RemoteName:    opt.RemoteName,
 		ReferenceName: plumbing.NewBranchReferenceName(head.Name().Short()),
 		SingleBranch:  true,
-		Auth: &http.BasicAuth{
-			Username: opt.HttpsGitUser,
-			Password: opt.HttpsGitPat,
-		},
-		Progress: os.Stdout,
-	}
-	if len(opt.SSHGitIdentityFile) > 0 {
-		pubKeys, err := ssh.NewPublicKeysFromFile(opt.SSHGitUser, opt.SSHGitIdentityFile, opt.SSHGitIdentityPasswd)
-		if err != nil {
-			return errors.New("GitPull priKey failed: " + err.Error())
-		}
-		pullOpt.Auth = pubKeys
+		Auth:          auth,
+		Progress:      os.Stdout,
 	}
 
 	err = workTree.Pull(pullOpt)
@@ -335,6 +359,30 @@ func GetBranchLog(gitRep *git.Repository, limit int) ([]string, error) {
 	})
 
 	return logsAdd, nil
+}
+
+func GitCloneSSH(opt *confopt.PublishGitOpt) (*git.Repository, error) {
+	pubKeys, err := ssh.NewPublicKeysFromFile(opt.SSHGitUser, opt.SSHGitIdentityFile, opt.SSHGitIdentityPasswd)
+	if err != nil {
+		return nil, errors.New("GitCloneSSH priKey failed: " + err.Error())
+	}
+
+	return git.PlainClone(opt.ClonePath, &git.CloneOptions{
+		URL:      opt.RepoUrl,
+		Progress: os.Stdout,
+		Auth:     pubKeys,
+	})
+}
+
+func GitCloneHttp(opt *confopt.PublishGitOpt) (*git.Repository, error) {
+	return git.PlainClone(opt.ClonePath, &git.CloneOptions{
+		URL:      opt.RepoUrl,
+		Progress: os.Stdout,
+		Auth: &http.BasicAuth{
+			Username: opt.HttpsGitUser,
+			Password: opt.HttpsGitPat,
+		},
+	})
 }
 
 func buildPublishMap(conf *confopt.Config) (gitMap map[string]*confopt.PublishGitOpt, gitArr []string) {

@@ -1,5 +1,6 @@
 
-# 默认执行的命令, 可选: sshproxy acgpic nettouch
+# 默认执行的命令, 可选: sshproxy acgpic, Tip: nettouch grep 暂不支持
+# acgpic publish sshproxy. Tip: nettouch and grep Not supported yet
 DefaultCommand: "sshproxy"
 
 AcgPic:

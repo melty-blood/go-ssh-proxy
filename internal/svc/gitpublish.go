@@ -248,11 +248,13 @@ func PublishCode(opt *confopt.PublishGitOpt) (*confopt.PublishGitOpt, error) {
 			return nil, errors.New("git checkout branch failed:" + err.Error())
 		}
 	}
-	log.Println("git pull head name:", gitReference.Name().Short())
+	log.Println("git before head name:", gitReference.Name().Short())
 	err = GitPullCode(gitRep, workTree, opt)
 	if err != nil {
 		return nil, errors.New("git pull code failed:" + err.Error())
 	}
+	gitReferenceNew, _ := gitRep.Head()
+	log.Println("git after head name:", gitReferenceNew.Name().Short())
 
 	// show logs
 	logsArr, err := GetBranchLog(gitRep, 2)

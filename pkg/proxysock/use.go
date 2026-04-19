@@ -31,37 +31,34 @@ func UseSSHFunc(conf *confopt.Config) {
 		http.ListenAndServe("127.0.0.1:6060", nil)
 	}()
 
-	onlineChan := make(chan string, 66)
-	go RunSockToHttp(conf, onlineChan)
-	RunProxySSHServer(conf, onlineChan)
+	go RunSockToHttp(conf)
+	RunProxySSHServer(conf)
 }
 
-func RunSockToHttp(conf *confopt.Config, onlineChan chan string) {
+func RunSockToHttp(conf *confopt.Config) {
 	logp := NewPrintLog("RunSockToHttp", "")
-	if !conf.SockToHttp.OpenStatus {
-		logp.Print("status false ", conf.SockToHttp.SockAddr, conf.SockToHttp.ToHttp)
+	if !conf.SockToHttp.OpenStatus || !conf.SockProxy.OpenStatus {
+		logp.Print("status false ", conf.SockProxy.ServerHost, conf.SockToHttp.SockAddr)
 		return
 	}
+
 	var (
 		toHttpCount         sync.Map
 		sockCtx, sockCancel = context.WithCancel(context.Background())
 		sockMap             = make(map[string]*runSSHServer)
+		onlineChan          = make(chan string, 66)
 	)
-	defer sockCancel()
 
 	sockMap[conf.SockToHttp.ServerName] = &runSSHServer{
 		ctx:        sockCtx,
 		ctxCancel:  sockCancel,
 		serverName: conf.SockToHttp.ServerName,
 	}
+	defer sockMap[conf.SockToHttp.ServerName].ctxCancel()
 
 	restartChan := make(chan string, 26)
 	logp.Print("start socks5 to http:", conf.SockToHttp.SockAddr, conf.SockToHttp.ToHttp)
-	if conf.SockProxy.OpenStatus {
-		go RunSSHSock5(sockCtx, conf, onlineChan)
-	} else {
-		onlineChan <- "RunProxyServer"
-	}
+	go RunSSHSock5(sockCtx, conf, onlineChan)
 
 	// 获取 linux 信号
 	signalChannel := make(chan os.Signal, 6)
@@ -116,15 +113,15 @@ func RunSockToHttp(conf *confopt.Config, onlineChan chan string) {
 	}
 }
 
-func RunProxySSHServer(conf *confopt.Config, onlineChan chan string) {
+func RunProxySSHServer(conf *confopt.Config) {
 	var (
 		err              error
 		sshCount         sync.Map
-		serverSSHMap     = make(map[string]*runSSHServer, 66)
 		serverSSHMapLock sync.Mutex
+		serverSSHMap     = make(map[string]*runSSHServer, 66)
+		restartChan      = make(chan *confopt.SSHConfig, 16)
 		logp             = NewPrintLog("RunProxySSHServer", "")
 	)
-	restartChan := make(chan *confopt.SSHConfig, 16)
 
 	for _, val := range conf.ServerConf.SSHConf {
 		if !val.OpenStatus {
@@ -147,7 +144,6 @@ func RunProxySSHServer(conf *confopt.Config, onlineChan chan string) {
 		}(val)
 	}
 	time.Sleep(2 * time.Second)
-	logp.Print("channel onlineChan len:", len(onlineChan))
 
 	// 获取 linux 信号
 	signalChannel := make(chan os.Signal, 6)
@@ -216,12 +212,6 @@ func SSHProxyStart(
 	restartChan chan *confopt.SSHConfig,
 	sshCount *sync.Map,
 ) error {
-	if sshCountNum, ok := sshCount.Load(sshConf.ServerName); !ok {
-		sshCount.Store(sshConf.ServerName, 0)
-	} else {
-		sshNum, _ := sshCountNum.(int)
-		sshCount.Store(sshConf.ServerName, sshNum+1)
-	}
 	logp := NewPrintLog("SSHProxyStart", "")
 
 	// 幂等 每次只能有一组在运行
@@ -237,6 +227,13 @@ func SSHProxyStart(
 		restartChan <- sshConf
 	}()
 
+	if sshCountNum, ok := sshCount.Load(sshConf.ServerName); ok {
+		sshNum, _ := sshCountNum.(int)
+		sshCount.Store(sshConf.ServerName, sshNum+1)
+	} else {
+		sshCount.Store(sshConf.ServerName, 1)
+	}
+
 	sshConf.IsError = false
 	// 如果没有自定义则用公共 jump
 	if sshConf.NeedJump && len(sshConf.JumpHost) == 0 {
@@ -248,7 +245,6 @@ func SSHProxyStart(
 	}
 	logp.Print("param ready:", sshConf.ServerName, sshConf.Local, " - ", sshConf.JumpHost)
 
-	// TODO 可以修改为协程使用channel来观察是否存在错误返回, 如果没有返回错误但是返回nil则代表本次连接需要被终止并重新连接
 	var err error
 	if sshConf.NeedJump {
 		err = sshToServerByJump(ctx, sshConf.ServerName, sshConf)
@@ -279,11 +275,11 @@ func StartSockToHttp(conf *confopt.Config, toHttpCount *sync.Map, restartChan ch
 		toHttpCount.Delete(keyName)
 	}()
 
-	if toHttpCountNum, ok := toHttpCount.Load(conf.SockToHttp.ServerName); !ok {
-		toHttpCount.Store(conf.SockToHttp.ServerName, 0)
-	} else {
+	if toHttpCountNum, ok := toHttpCount.Load(conf.SockToHttp.ServerName); ok {
 		sshNum, _ := toHttpCountNum.(int)
 		toHttpCount.Store(conf.SockToHttp.ServerName, sshNum+1)
+	} else {
+		toHttpCount.Store(conf.SockToHttp.ServerName, 1)
 	}
 
 	logp.Print("sock to http process Start:", conf.SockToHttp.ServerName)

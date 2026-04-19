@@ -102,6 +102,7 @@ func sshToServerByJump(baseCtx context.Context, serverName string, sshconf *conf
 		logp.Print("Error Failed to connect target host through jump host:", err, serverName)
 		return err
 	}
+	defer targetConn.Close()
 
 	// 创建目标服务器的 SSH 客户端
 	targetSSHConn, chans, reqs, err := ssh.NewClientConn(targetConn, targetHost, targetConfig)
@@ -294,9 +295,9 @@ func baseConnCancel(baseCtx context.Context, connActionChan chan string, serverN
 			baseNumInt = 0
 			logp.Print("connActionChan has new value:", connActionStr)
 
-		case nilStruct, ok := <-baseCtx.Done():
+		case _, ok := <-baseCtx.Done():
 			localConn.Close()
-			logp.Print("localListener close by baseCtx Cancel!", nilStruct, ok)
+			logp.Print("localListener close by baseCtx Cancel!", ok)
 			return
 
 		default:
@@ -359,20 +360,6 @@ func connTimeoutCancel(
 			return
 		default:
 			time.Sleep(time.Second)
-		}
-	}
-}
-
-func connClose(ctx context.Context, serverName string, local, remote net.Conn) {
-	for {
-		select {
-		case _, ok := <-ctx.Done():
-			remote.Close()
-			local.Close()
-			log.Println("connClose remoteConn localConn close now,", serverName, ok)
-			return
-		default:
-			time.Sleep(6 * time.Second)
 		}
 	}
 }
@@ -449,19 +436,6 @@ func sshToServer(baseCtx context.Context, serverName string, sshconf *confopt.SS
 		return err
 	}
 	return nil
-}
-
-func channelIsCloseAny[CN ~chan VAL, VAL string | int](chanArr ...CN) bool {
-	for _, chanVal := range chanArr {
-		select {
-		case _, ok := <-chanVal:
-			if !ok {
-				return false
-			}
-		default:
-		}
-	}
-	return true
 }
 
 func startSSHCon(
@@ -641,6 +615,20 @@ func startSSHCon(
 	}
 }
 
+func connClose(ctx context.Context, serverName string, local, remote net.Conn) {
+	for {
+		select {
+		case _, ok := <-ctx.Done():
+			remote.Close()
+			local.Close()
+			log.Println("connClose remoteConn localConn close now,", serverName, ok)
+			return
+		default:
+			time.Sleep(6 * time.Second)
+		}
+	}
+}
+
 func listenLocalToRemote(ctx context.Context, localRemoteChan chan int, sshconf *confopt.SSHConfig) {
 	logp := NewPrintLog("listenLocalToRemote", "")
 	serverName := sshconf.ServerName
@@ -660,4 +648,17 @@ func listenLocalToRemote(ctx context.Context, localRemoteChan chan int, sshconf 
 			time.Sleep(6 * time.Second)
 		}
 	}
+}
+
+func channelIsCloseAny[CN ~chan VAL, VAL string | int](chanArr ...CN) bool {
+	for _, chanVal := range chanArr {
+		select {
+		case _, ok := <-chanVal:
+			if !ok {
+				return false
+			}
+		default:
+		}
+	}
+	return true
 }

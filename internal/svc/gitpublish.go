@@ -205,6 +205,11 @@ func PublishCode(opt *confopt.PublishGitOpt) (*confopt.PublishGitOpt, error) {
 		log.Println("ready clone remote:", err)
 		gitRep, err = GitClone(opt)
 		if err != nil {
+			// if clone fail, must delete clone dir
+			rmErr := os.RemoveAll(opt.ClonePath)
+			if rmErr != nil {
+				log.Println("!!!!!! rm ClonePath fail", rmErr.Error())
+			}
 			return nil, errors.New("git clone failed:" + err.Error())
 		}
 	} else if err != nil {
@@ -236,14 +241,29 @@ func PublishCode(opt *confopt.PublishGitOpt) (*confopt.PublishGitOpt, error) {
 		return nil, errors.New("git show Head failed:" + err.Error())
 	}
 	workTree, err := gitRep.Worktree()
+	if err != nil {
+		log.Println("build gitRep.workTree fail:", err)
+	}
 	if gitReference.Name().Short() != opt.CheckBranch {
-		log.Println("gitRep.workTree: ", err)
-		err = workTree.Checkout(&git.CheckoutOptions{
+		// check branck exists
+		isCreate := false
+		localRefName := plumbing.NewBranchReferenceName(opt.CheckBranch)
+		_, err = gitRep.Reference(localRefName, true)
+		if err != nil {
+			if errors.Is(err, plumbing.ErrReferenceNotFound) {
+				isCreate = true
+			} else {
+				return nil, errors.New("git checkout branch reference fail:" + err.Error())
+			}
+		}
+
+		checkoutOpt := &git.CheckoutOptions{Branch: localRefName}
+		if isCreate {
 			// Hash: new branch point to this Commit
-			Hash:   remoteCommitHash,
-			Branch: plumbing.NewBranchReferenceName(opt.CheckBranch),
-			Create: true,
-		})
+			checkoutOpt.Hash = remoteCommitHash
+			checkoutOpt.Create = true
+		}
+		err = workTree.Checkout(checkoutOpt)
 		if err != nil {
 			return nil, errors.New("git checkout branch failed:" + err.Error())
 		}

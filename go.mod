@@ -7,6 +7,7 @@ toolchain go1.23.10
 require (
 	github.com/deatil/go-cryptobin v1.0.2053
 	github.com/elazarl/goproxy v1.7.2
+	github.com/go-git/go-git v4.7.0+incompatible
 	github.com/go-git/go-git/v6 v6.0.0-20250728093604-6aaf1933ecab
 	github.com/pkg/sftp v1.13.9
 	github.com/zeromicro/go-zero v1.7.4
@@ -24,7 +25,6 @@ require (
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/go-git/gcfg/v2 v2.0.2 // indirect
 	github.com/go-git/go-billy/v6 v6.0.0-20250627091229-31e2a16eef30 // indirect
-	github.com/go-git/go-git v4.7.0+incompatible // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect

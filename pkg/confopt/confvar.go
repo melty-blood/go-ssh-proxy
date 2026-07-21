@@ -31,7 +31,7 @@ type (
 			JumpPriKey     string `json:",optional"`
 			JumpPriPass    string `json:",optional"`
 			Local          string
-			Proxy          string
+			Proxy          string `json:",optional"`
 			SSHCommand     string `json:",optional"`
 		}
 

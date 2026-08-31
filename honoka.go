@@ -4,21 +4,27 @@ import (
 	"fmt"
 	"honoka/internal/svc"
 	"honoka/pkg/confopt"
+	"log"
 	"os"
 	"slices"
 )
 
 func main() {
-	var commandArr []string = []string{"sshproxy", "acgpic", "nettouch", "grep", "publish"}
-
-	confPath := ""
+	var (
+		confPath   = ""
+		err        error
+		commandArr []string = []string{"sshproxy", "acgpic", "nettouch", "grep", "publish"}
+	)
 	for key, val := range os.Args {
 		if val == "-f" {
 			confPath = os.Args[key+1]
 		}
 	}
 	if confPath == "" {
-		confPath = "./conf/conf.yaml"
+		confPath, err = confopt.GetConfDir()
+		if err != nil {
+			log.Fatalln("get conf dir fail, err:", err)
+		}
 	}
 
 	var conf *confopt.Config = confopt.ReadConf(confPath)

@@ -3,6 +3,8 @@ package confopt
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/zeromicro/go-zero/core/conf"
 )
@@ -30,4 +32,32 @@ func PrintConfJson(conf *Config) {
 	jsonByte, _ := json.Marshal(conf)
 	fmt.Println(string(jsonByte))
 	fmt.Println(`------ Print JSON End ------ `)
+}
+
+func GetConfDir() (string, error) {
+	confFileName := "conf.yaml"
+	confFilePath := ""
+	// check user dir has conf
+	confDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	confFilePath = confDir + "/.config/honoka/" + confFileName
+	fileInfo, err := os.Stat(confFilePath)
+	if err == nil && !fileInfo.IsDir() {
+		return confFilePath, nil
+	}
+
+	// check execute dir has conf
+	confDir, err = os.Executable()
+	if err != nil {
+		return "", err
+	}
+	confFilePath = filepath.Dir(confDir) + "/conf/" + confFileName
+	fileInfo, err = os.Stat(confFilePath)
+	if err == nil && !fileInfo.IsDir() {
+		return confFilePath, nil
+	}
+
+	return "./conf/conf.yaml", nil
 }
